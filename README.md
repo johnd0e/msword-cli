@@ -38,6 +38,7 @@ Key differences:
   `try/except` blocks.
 - Uses `pathlib.Path` throughout instead of `os.path`.
 - Modern packaging via `pyproject.toml` and `uv run` usage.
+- Adds `compare` and `merge` commands (not present in the original).
 - Expected to evolve independently; some original tests may require adaptation.
 
 ## Requirements and limitations
@@ -110,6 +111,8 @@ document.
 | `close` | Close the current document |
 | `docs` | List all open documents |
 | `activate <index>` | Activate an open document by its index |
+| `compare <original> <revised>` | Compare two documents, showing differences as tracked changes |
+| `merge <original> <revised>` | Merge two documents, combining their tracked changes |
 
 For a complete list of options for any subcommand, run:
 
@@ -153,6 +156,52 @@ msw export --pdf . export --xps .
 Note: `.` (a single dot) refers to the current working directory. The export
 command will resolve the output filename from the active document's name.
 
+### Comparing documents
+
+The `compare` command wraps Word's
+[`Application.CompareDocuments`](https://learn.microsoft.com/en-us/office/vba/api/word.application.comparedocuments)
+and produces a new document with all differences shown as tracked changes:
+
+```bash
+msw compare original.docx revised.docx
+```
+
+By default the result opens as a new document. Use `--to-original` or
+`--to-revised` to put the diff inline:
+
+```bash
+msw compare original.docx revised.docx --to-revised
+```
+
+Comparison granularity is word-level by default; use `--char-level` for
+character-level diff. Individual difference types can be excluded:
+
+```bash
+msw compare original.docx revised.docx --char-level --no-formatting --no-whitespace
+```
+
+Available `--no-*` flags: `--no-formatting`, `--no-case-changes`,
+`--no-whitespace`, `--no-tables`, `--no-headers`, `--no-footnotes`,
+`--no-textboxes`, `--no-fields`, `--no-comments`, `--no-moves`.
+
+Use `--author <name>` to override the author attributed to tracked changes
+(defaults to the Word username). Use `--ignore-warnings` to suppress any
+Word comparison warning dialogs.
+
+### Merging documents
+
+The `merge` command wraps
+[`Application.MergeDocuments`](https://learn.microsoft.com/en-us/dotnet/api/microsoft.office.interop.word._application.mergedocuments)
+and combines the tracked changes from both documents:
+
+```bash
+msw merge original.docx revised.docx
+```
+
+It accepts the same `--no-*`, `--char-level`, `--author`, and
+`--ignore-warnings` options as `compare`. The destination flags are
+`--to-original` and `--to-revised` (default: new document).
+
 ## Library usage
 
 The project exposes a high-level Python API built around `WordClient` and
@@ -187,6 +236,17 @@ def convert_folder_to_pdf(folder_path: str) -> None:
 
 if __name__ == "__main__":
     convert_folder_to_pdf(r"C:\Users\User\Documents")
+```
+
+### Example: compare two documents via API
+
+```python
+from msword_cli import WordClient, WordAPIError
+
+with WordClient(visible=True) as word:
+    diff = word.compare("original.docx", "revised.docx")
+    print(f"Diff document: {diff.name}")
+    diff.save("diff.docx", force=True)
 ```
 
 ## Plugins
