@@ -220,6 +220,96 @@ class WordClient:
         except com_error as e:
             raise WordAPIError(f"Failed to create new document: {e.excepinfo[2]}")
 
+    def compare(
+        self,
+        original: str,
+        revised: str,
+        destination: Any = C.wdCompareDestinationNew,
+        granularity: Any = C.wdGranularityWordLevel,
+        formatting: bool = True,
+        case_changes: bool = True,
+        whitespace: bool = True,
+        tables: bool = True,
+        headers: bool = True,
+        footnotes: bool = True,
+        textboxes: bool = True,
+        fields: bool = True,
+        comments: bool = True,
+        moves: bool = True,
+        author: Optional[str] = None,
+        ignore_warnings: bool = False,
+    ) -> Document:
+        """Compare two documents; returns a Document with tracked-change diff."""
+        try:
+            orig_doc = self._word.Documents.Open(FileName=str(Path(original).resolve()), Visible=False)
+            rev_doc = self._word.Documents.Open(FileName=str(Path(revised).resolve()), Visible=False)
+            result = self._word.CompareDocuments(
+                OriginalDocument=orig_doc,
+                RevisedDocument=rev_doc,
+                Destination=destination,
+                Granularity=granularity,
+                CompareFormatting=formatting,
+                CompareCaseChanges=case_changes,
+                CompareWhitespace=whitespace,
+                CompareTables=tables,
+                CompareHeaders=headers,
+                CompareFootnotes=footnotes,
+                CompareTextboxes=textboxes,
+                CompareFields=fields,
+                CompareComments=comments,
+                CompareMoves=moves,
+                RevisedAuthor=author or self._word.UserName,
+                IgnoreAllComparisonWarnings=ignore_warnings,
+            )
+            return Document(result)
+        except com_error as e:
+            raise WordAPIError(f"Compare failed: {e.excepinfo[2]}")
+
+    def merge(
+        self,
+        original: str,
+        revised: str,
+        destination: Any = C.wdMergeDestinationNewDocument,
+        granularity: Any = C.wdGranularityWordLevel,
+        formatting: bool = True,
+        case_changes: bool = True,
+        whitespace: bool = True,
+        tables: bool = True,
+        headers: bool = True,
+        footnotes: bool = True,
+        textboxes: bool = True,
+        fields: bool = True,
+        comments: bool = True,
+        moves: bool = True,
+        author: Optional[str] = None,
+        ignore_warnings: bool = False,
+    ) -> Document:
+        """Merge two documents; returns a Document with combined tracked changes."""
+        try:
+            orig_doc = self._word.Documents.Open(FileName=str(Path(original).resolve()), Visible=False)
+            rev_doc = self._word.Documents.Open(FileName=str(Path(revised).resolve()), Visible=False)
+            result = self._word.MergeDocuments(
+                OriginalDocument=orig_doc,
+                RevisedDocument=rev_doc,
+                Destination=destination,
+                Granularity=granularity,
+                CompareFormatting=formatting,
+                CompareCaseChanges=case_changes,
+                CompareWhitespace=whitespace,
+                CompareTables=tables,
+                CompareHeaders=headers,
+                CompareFootnotes=footnotes,
+                CompareTextboxes=textboxes,
+                CompareFields=fields,
+                CompareComments=comments,
+                CompareMoves=moves,
+                RevisedAuthor=author or self._word.UserName,
+                IgnoreAllComparisonWarnings=ignore_warnings,
+            )
+            return Document(result)
+        except com_error as e:
+            raise WordAPIError(f"Merge failed: {e.excepinfo[2]}")
+
     def quit(self) -> None:
         try:
             self._word.Quit()
@@ -276,6 +366,44 @@ def print_version(ctx: click.Context, param: click.Parameter, value: bool) -> No
         return
     click.echo(f'Version {VERSION}')
     ctx.exit()
+
+
+# Shared options for compare/merge commands
+_COMPARE_OPTIONS = [
+    click.option('--char-level', 'granularity', flag_value=C.wdGranularityCharLevel,
+                 help='Compare at character level (default: word level).'),
+    click.option('--no-formatting', 'formatting', is_flag=True, default=False,
+                 help='Ignore formatting differences.'),
+    click.option('--no-case-changes', 'case_changes', is_flag=True, default=False,
+                 help='Ignore case change differences.'),
+    click.option('--no-whitespace', 'whitespace', is_flag=True, default=False,
+                 help='Ignore whitespace differences.'),
+    click.option('--no-tables', 'tables', is_flag=True, default=False,
+                 help='Ignore table differences.'),
+    click.option('--no-headers', 'headers', is_flag=True, default=False,
+                 help='Ignore header/footer differences.'),
+    click.option('--no-footnotes', 'footnotes', is_flag=True, default=False,
+                 help='Ignore footnote differences.'),
+    click.option('--no-textboxes', 'textboxes', is_flag=True, default=False,
+                 help='Ignore text box differences.'),
+    click.option('--no-fields', 'fields', is_flag=True, default=False,
+                 help='Ignore field differences.'),
+    click.option('--no-comments', 'comments', is_flag=True, default=False,
+                 help='Ignore comment differences.'),
+    click.option('--no-moves', 'moves', is_flag=True, default=False,
+                 help='Ignore move differences.'),
+    click.option('--author', type=str, default=None,
+                 help='Author name for tracked changes (defaults to Word username).'),
+    click.option('--ignore-warnings', is_flag=True, default=False,
+                 help='Suppress all comparison warning dialogs.'),
+]
+
+
+def add_compare_options(func):
+    """Attach all shared compare/merge options to a command."""
+    for option in reversed(_COMPARE_OPTIONS):
+        func = option(func)
+    return func
 
 
 @click.group(chain=True)
@@ -447,6 +575,106 @@ def docs_cmd() -> None:
             click.echo(f' {active} [{i: ={pad_len}}] {doc.name}{saved}')
     else:
         click.echo('\nNo open documents found.')
+
+
+@cli.command('compare')
+@click.argument('original', type=click.Path(exists=True, resolve_path=True))
+@click.argument('revised', type=click.Path(exists=True, resolve_path=True))
+@click.option('--to-original', 'destination', flag_value=C.wdCompareDestinationOriginal,
+              help='Put diff into the original document.')
+@click.option('--to-revised', 'destination', flag_value=C.wdCompareDestinationRevised,
+              help='Put diff into the revised document.')
+@add_compare_options
+@handle_api_error
+def compare_cmd(
+    original: str,
+    revised: str,
+    destination: Any,
+    granularity: Any,
+    formatting: bool,
+    case_changes: bool,
+    whitespace: bool,
+    tables: bool,
+    headers: bool,
+    footnotes: bool,
+    textboxes: bool,
+    fields: bool,
+    comments: bool,
+    moves: bool,
+    author: Optional[str],
+    ignore_warnings: bool,
+) -> None:
+    """Compare ORIGINAL and REVISED documents, showing differences as tracked changes."""
+    click.echo(f'Comparing "{original}" with "{revised}"')
+    result = get_client().compare(
+        original=original,
+        revised=revised,
+        destination=destination or C.wdCompareDestinationNew,
+        granularity=granularity or C.wdGranularityWordLevel,
+        formatting=not formatting,
+        case_changes=not case_changes,
+        whitespace=not whitespace,
+        tables=not tables,
+        headers=not headers,
+        footnotes=not footnotes,
+        textboxes=not textboxes,
+        fields=not fields,
+        comments=not comments,
+        moves=not moves,
+        author=author,
+        ignore_warnings=ignore_warnings,
+    )
+    click.echo(f'Result document: "{result.name}"')
+
+
+@cli.command('merge')
+@click.argument('original', type=click.Path(exists=True, resolve_path=True))
+@click.argument('revised', type=click.Path(exists=True, resolve_path=True))
+@click.option('--to-original', 'destination', flag_value=C.wdMergeDestinationOriginalDocument,
+              help='Merge result into the original document.')
+@click.option('--to-revised', 'destination', flag_value=C.wdMergeDestinationRevisedDocument,
+              help='Merge result into the revised document.')
+@add_compare_options
+@handle_api_error
+def merge_cmd(
+    original: str,
+    revised: str,
+    destination: Any,
+    granularity: Any,
+    formatting: bool,
+    case_changes: bool,
+    whitespace: bool,
+    tables: bool,
+    headers: bool,
+    footnotes: bool,
+    textboxes: bool,
+    fields: bool,
+    comments: bool,
+    moves: bool,
+    author: Optional[str],
+    ignore_warnings: bool,
+) -> None:
+    """Merge ORIGINAL and REVISED documents, combining their tracked changes."""
+    click.echo(f'Merging "{original}" with "{revised}"')
+    result = get_client().merge(
+        original=original,
+        revised=revised,
+        destination=destination or C.wdMergeDestinationNewDocument,
+        granularity=granularity or C.wdGranularityWordLevel,
+        formatting=not formatting,
+        case_changes=not case_changes,
+        whitespace=not whitespace,
+        tables=not tables,
+        headers=not headers,
+        footnotes=not footnotes,
+        textboxes=not textboxes,
+        fields=not fields,
+        comments=not comments,
+        moves=not moves,
+        author=author,
+        ignore_warnings=ignore_warnings,
+    )
+    click.echo(f'Result document: "{result.name}"')
 
 
 try:
