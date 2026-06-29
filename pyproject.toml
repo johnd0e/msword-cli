@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "msword-cli"
+version = "0.2.0"
+description = "Command-line interface and Python API for automating Microsoft Word via COM"
+readme = "README.md"
+license = { text = "BSD-3-Clause" }
+requires-python = ">=3.8"
+authors = [
+  { name = "Andrii Synytsyn" }
+]
+keywords = ["microsoft", "word", "cli", "automation", "com", "win32"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Environment :: Win32 (MS Windows)",
+  "Intended Audience :: Developers",
+  "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: BSD License",
+  "Operating System :: Microsoft :: Windows",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Office/Business :: Office Suites"
+]
+dependencies = [
+  "click>=8.0",
+  "pywin32>=306"
+]
+
+[project.urls]
+Homepage = "https://github.com/johnd0e/msword-cli"
+Repository = "https://github.com/johnd0e/msword-cli"
+Issues = "https://github.com/johnd0e/msword-cli/issues"
+"Original Project" = "https://github.com/waylan/msword-cli"
+
+[project.scripts]
+msw = "msword_cli:cli"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0"
+]
