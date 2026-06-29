@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "msword-cli"
-version = "0.2.0"
+version = "0.3.0"
 description = "Command-line interface and Python API for automating Microsoft Word via COM"
 readme = "README.md"
 license = { text = "BSD-3-Clause" }
@@ -46,4 +46,10 @@ msw = "msword_cli:cli"
 [dependency-groups]
 dev = [
   "pytest>=8.0"
+]
+
+
+[tool.pytest.ini_options]
+markers = [
+  "integration: requires a live Microsoft Word COM environment"
 ]

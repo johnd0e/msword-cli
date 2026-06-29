@@ -15,11 +15,11 @@ tool does not actually edit the content of any documents.
 ## Features
 
 - **Dual mode:** powerful CLI based on [Click](https://click.palletsprojects.com/)
-  and a clean Core API for use as an importable module.
+  and a high-level Python API for use as an importable module.
 - **Command pipelines:** subcommands can be chained together in a single call,
   loading Word only once regardless of how many operations are performed.
-- **Batch processing:** convenient classes and context managers for safely
-  automating many documents without memory leaks or ghost `WINWORD.EXE` processes.
+- **Batch processing:** convenient classes and context managers for automating
+  many documents with explicit Word shutdown via `quit_on_exit=True`.
 - **Smart resource management:** lazy client initialization — Word is not started
   unless an actual command requires it (e.g. `--help` is instant).
 - **Plugin support:** third-party packages can register new CLI subcommands
@@ -39,7 +39,8 @@ Key differences:
 - Uses `pathlib.Path` throughout instead of `os.path`.
 - Modern packaging via `pyproject.toml` and `uv run` usage.
 - Adds `compare` and `merge` commands (not present in the original).
-- Expected to evolve independently; some original tests may require adaptation.
+- Original tests were adapted to the new API/CLI architecture and extended for
+  the newer compare/merge and library API behavior.
 
 ## Requirements and limitations
 
@@ -61,24 +62,30 @@ Key differences:
 
 ## Installation
 
-Using [uv](https://github.com/astral-sh/uv) (recommended):
-
-```bash
-uv add msword-cli
-```
-
-Or with pip:
-
-```bash
-pip install msword-cli
-```
-
-For development / editable install:
+The project is not currently published on PyPI. Clone the repository and use
+[uv](https://github.com/astral-sh/uv) to install the `msw` command:
 
 ```bash
 git clone https://github.com/johnd0e/msword-cli
 cd msword-cli
-pip install -e .
+uv tool install .
+msw --help
+```
+
+For development, `uv sync` creates the project environment and installs the
+package in editable mode:
+
+```bash
+git clone https://github.com/johnd0e/msword-cli
+cd msword-cli
+uv sync --dev
+uv run msw --help
+```
+
+To use the Python API from another uv project, add the Git dependency:
+
+```bash
+uv add git+https://github.com/johnd0e/msword-cli.git
 ```
 
 ## CLI usage
@@ -206,7 +213,7 @@ It accepts the same `--no-*`, `--char-level`, `--author`, and
 
 The project exposes a high-level Python API built around `WordClient` and
 `Document`. It writes nothing to `stdout` and raises `WordAPIError` on
-failures, making it safe to use in larger scripts or web services.
+failures, making errors straightforward to handle in larger scripts.
 
 ### Example: batch folder conversion to PDF
 
@@ -241,9 +248,9 @@ if __name__ == "__main__":
 ### Example: compare two documents via API
 
 ```python
-from msword_cli import WordClient, WordAPIError
+from msword_cli import WordClient
 
-with WordClient(visible=True) as word:
+with WordClient(visible=True, quit_on_exit=True) as word:
     diff = word.compare("original.docx", "revised.docx")
     print(f"Diff document: {diff.name}")
     diff.save("diff.docx", force=True)
@@ -272,18 +279,23 @@ Register it in your `pyproject.toml`:
 import = "msw_import:imprt"
 ```
 
-Install in editable mode so the plugin is picked up immediately:
+Sync the editable development environment so the plugin entry point is picked
+up immediately:
 
 ```bash
-pip install -e .
+uv sync --dev
 ```
 
-After installation the new command will appear in `msw --help` and can be
-used in chains:
+The new command will appear in the project environment and can be used in
+chains:
 
 ```bash
-msw open data.docx import close
+uv run msw open data.docx import close
 ```
+
+## Development notes
+
+For test setup and execution, see [tests/README.md](tests/README.md).
 
 ---
 
