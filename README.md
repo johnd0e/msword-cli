@@ -1,16 +1,12 @@
 # MS Word CLI & API
 
-*This project is a modern evolution of the original
-[MSWord-CLI](https://github.com/waylan/msword-cli) package authored by
-[Waylan Limberg](https://github.com/waylan).*
+This project is a modern evolution of the original [MSWord-CLI](https://github.com/waylan/msword-cli) package.
 
 A command-line interface (CLI) and object-oriented Python API for automating
 Microsoft Word using COM technology (`win32com`).
 
 MS Word CLI & API allows you to control Microsoft Word from the command line
-and/or automate it from your own scripts. Among other things, you may create,
-open, print, export to PDF/XPS, save, and close Word documents. Note that this
-tool does not actually edit the content of any documents.
+and/or automate it from your own scripts. Among other things, you may create, open, print, export, save, compare, merge, search, replace, review, and inspect Word documents.
 
 ## Features
 
@@ -24,23 +20,6 @@ tool does not actually edit the content of any documents.
   unless an actual command requires it (e.g. `--help` is instant).
 - **Plugin support:** third-party packages can register new CLI subcommands
   through the `msw.plugin` entry-point group.
-
-## Differences from the original
-
-This project intentionally stays close to the spirit of the original
-`msword-cli`, but it is no longer just a thin CLI wrapper around Word.
-
-Key differences:
-- Drops Python 2 compatibility; targets Python `>=3.8`.
-- Introduces a high-level library API (`WordClient`, `Document`) alongside the CLI.
-- Cleaner internal architecture: explicit `WordAPIError` exceptions, a dedicated
-  CLI wrapper layer, and a `@handle_api_error` decorator eliminating repetitive
-  `try/except` blocks.
-- Uses `pathlib.Path` throughout instead of `os.path`.
-- Modern packaging via `pyproject.toml` and `uv run` usage.
-- Adds `compare` and `merge` commands (not present in the original).
-- Original tests were adapted to the new API/CLI architecture and extended for
-  the newer compare/merge and library API behavior.
 
 ## Requirements and limitations
 
@@ -57,8 +36,7 @@ Key differences:
 - Does not work on Linux or macOS.
 - In case of a hard crash (e.g. `Ctrl+C` outside a context manager),
   `WINWORD.EXE` may remain running in the background.
-- Focuses on document lifecycle and export/print workflows; does not edit
-  document content.
+- Focuses on Windows Word automation through COM and therefore depends on the local Word installation and its object model behavior.
 
 ## Installation
 
@@ -106,20 +84,14 @@ uv run msword_cli.py --help
 Unless otherwise specified, all subcommands operate on the currently active
 document.
 
-### Basic commands
+### Command groups
 
-| Command | Description |
+| Group | Commands |
 |---|---|
-| `open <path>` | Open an existing document and activate it |
-| `new` | Create a new document, optionally from a template |
-| `export <path>` | Export the active document to PDF or XPS |
-| `print` | Print the active document |
-| `save` | Save changes |
-| `close` | Close the current document |
-| `docs` | List all open documents |
-| `activate <index>` | Activate an open document by its index |
-| `compare <original> <revised>` | Compare two documents, showing differences as tracked changes |
-| `merge <original> <revised>` | Merge two documents, combining their tracked changes |
+| Documents | `open`, `new`, `save`, `save-as`, `save-copy`, `close`, `list-documents`, `activate`, `compare`, `merge` |
+| Content | `find`, `replace`, `print`, `export`, `update-fields` |
+| Review | `track-changes`, `accept-revisions`, `reject-revisions`, `list-comments`, `export-comments`, `delete-comments` |
+| Properties | `info`, `statistics`, `list-properties`, `get-property`, `set-property`, `delete-property` |
 
 For a complete list of options for any subcommand, run:
 
@@ -127,17 +99,25 @@ For a complete list of options for any subcommand, run:
 msw <command> --help
 ```
 
+### Common examples
+
+```bash
+msw open my.docx save-as renamed.docx close
+msw open my.docx find --format json invoice close
+msw open draft.docx track-changes --on replace old new save close
+msw open review.docx list-comments export-comments --json comments.json close
+msw open report.docx update-fields export --pdf-a --with-properties . close
+```
 ### Listing open documents
 
 ```bash
-$ msw docs
+$ msw list-documents
 
 Open Documents:
 
  * [1] doc1.docx
    [2] doc2.docx*
 ```
-
 The `*` prefix marks the currently active document. The trailing `*` on a
 filename indicates unsaved changes.
 
@@ -150,8 +130,7 @@ is significantly faster than invoking the script multiple times:
 msw open somedoc.docx print --copies 2 --pages "2-4, 6" close
 ```
 
-Options for a subcommand must appear immediately after that subcommand and
-before the next one in the chain.
+Options for a subcommand must appear immediately after that subcommand and before its positional arguments or the next command in the chain.
 
 Chaining also lets you run the same command twice with different options.
 For example, to export to both PDF and XPS in one go:
@@ -256,6 +235,28 @@ with WordClient(visible=True, quit_on_exit=True) as word:
     diff.save("diff.docx", force=True)
 ```
 
+### Advanced API: direct COM access via `native`
+
+For advanced automation, `WordClient.native` exposes the underlying
+`Word.Application` COM object and `Document.native` exposes the wrapped
+`Word.Document`. This is intended as an escape hatch for plugins or scripts that
+need Word features not yet covered by the high-level API.
+
+```python
+from msword_cli import WordClient
+
+with WordClient(visible=False, quit_on_exit=True) as word:
+    doc = word.open("report.docx", visible=False)
+    selection = word.native.Selection
+    selection.EndKey(Unit=6)  # wdStory
+    selection.TypeText("\nAppended through COM")
+    doc.native.Save()
+```
+
+`WordClient.native` raises `WordAPIError` after `quit()`. `Document.native`
+returns the raw COM proxy as-is; any later COM errors from using that proxy are
+not wrapped by `msword-cli`.
+
 ## Plugins
 
 MSWord-CLI supports third-party plugins. A plugin adds one or more Click
@@ -293,11 +294,11 @@ chains:
 uv run msw open data.docx import close
 ```
 
+Installed plugins can share the same Word instance as built-in commands through
+`get_client()`. If a plugin needs lower-level Word automation, use the public
+`native` escape hatch instead of reaching into private attributes such as
+`_word` or `_doc`.
+
 ## Development notes
 
 For test setup and execution, see [tests/README.md](tests/README.md).
-
----
-
-*Original project: [waylan/msword-cli](https://github.com/waylan/msword-cli)
-— [README](https://github.com/waylan/msword-cli/raw/refs/heads/master/README.rst)*

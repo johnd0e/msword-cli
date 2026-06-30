@@ -1,16 +1,16 @@
 import importlib
 import os
+import shutil
 import sys
-from click.testing import CliRunner
 import uuid
 from contextlib import contextmanager
-import shutil
-import tempfile
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from click.testing import CliRunner
+
 
 @pytest.fixture(scope="session", autouse=True)
 def test_tempdir():
@@ -18,8 +18,6 @@ def test_tempdir():
     root.mkdir(exist_ok=True)
     os.environ["TMPDIR"] = str(root)
     yield
-
-
 
 
 @pytest.fixture(autouse=True)
@@ -40,6 +38,7 @@ def patch_click_isolated_filesystem(monkeypatch):
 
     monkeypatch.setattr(CliRunner, "isolated_filesystem", isolated_filesystem)
     yield
+
 
 def _make_pywin32_stubs():
     pywintypes = ModuleType("pywintypes")
@@ -95,6 +94,16 @@ def _make_pywin32_stubs():
         wdMergeDestinationRevisedDocument=38,
         wdGranularityWordLevel=39,
         wdGranularityCharLevel=40,
+        wdReplaceAll=41,
+        wdFindStop=42,
+        wdStatisticPages=43,
+        wdStatisticWords=44,
+        wdStatisticCharacters=45,
+        wdStatisticParagraphs=46,
+        msoPropertyTypeNumber=47,
+        msoPropertyTypeBoolean=48,
+        msoPropertyTypeString=49,
+        msoPropertyTypeFloat=50,
     )
     win32com.client = client
     return pywintypes, win32com, client
@@ -138,16 +147,112 @@ def real_msword_cli():
         pythoncom.CoUninitialize()
 
 
+class FakeCollection:
+    def __init__(self, items=None):
+        self._items = list(items or [])
+
+    @property
+    def Count(self):
+        return len(self._items)
+
+    def Item(self, index):
+        if isinstance(index, str):
+            for item in self._items:
+                if getattr(item, "Name", None) == index:
+                    return item
+            raise KeyError(index)
+        return self._items[index - 1]
+
+
+class FakeProperty:
+    def __init__(self, name, value):
+        self.Name = name
+        self.Value = value
+        self.Delete = Mock()
+
+
+class FakePropertyCollection(FakeCollection):
+    def Add(self, Name, LinkToContent, Type, Value):
+        prop = FakeProperty(Name, Value)
+        self._items.append(prop)
+        return prop
+
+
+class FakeCommentsCollection(FakeCollection):
+    pass
+
+
+class FakeRevisionsCollection(FakeCollection):
+    def __init__(self, count=0):
+        super().__init__([object()] * count)
+        self.AcceptAll = Mock()
+        self.RejectAll = Mock()
+
+
+class FakeFieldsCollection(FakeCollection):
+    def __init__(self, count=0):
+        super().__init__([object()] * count)
+        self.Update = Mock()
+
+
+class FakeRange:
+    def __init__(self, text="", start=0, end=None):
+        self.Text = text
+        self.Start = start
+        self.End = len(text) if end is None else end
+        self.Find = SimpleNamespace(Execute=Mock(return_value=False))
+        self.SetRange = Mock(side_effect=self._set_range)
+        self.Comments = FakeCommentsCollection()
+        self.Revisions = FakeRevisionsCollection(0)
+        self.Fields = FakeFieldsCollection(0)
+
+    @property
+    def Duplicate(self):
+        duplicate = FakeRange(self.Text, self.Start, self.End)
+        duplicate.Find = self.Find
+        duplicate.SetRange = self.SetRange
+        duplicate.Comments = self.Comments
+        duplicate.Revisions = self.Revisions
+        duplicate.Fields = self.Fields
+        return duplicate
+
+    def _set_range(self, start, end):
+        self.Start = start
+        self.End = end
+
+
+class FakeComment:
+    def __init__(self, author="Tester", text="Comment", scope_text="Body", initials="TT"):
+        self.Author = author
+        self.Initial = initials
+        self.Date = "2026-06-30"
+        self.Range = SimpleNamespace(Text=text)
+        self.Scope = SimpleNamespace(Text=scope_text)
+        self.Delete = Mock()
+
+
 class FakeComDocument:
     def __init__(self, name: str, saved: bool = True):
         self.Name = name
         self.Saved = saved
+        self.FullName = str(Path(name).resolve())
+        self.TrackRevisions = False
         self.Activate = Mock()
         self.Save = Mock()
         self.SaveAs = Mock()
+        self.SaveCopyAs = Mock()
         self.Close = Mock()
         self.ExportAsFixedFormat = Mock()
         self.PrintOut = Mock()
+        self.Comments = FakeCommentsCollection()
+        self.Revisions = FakeRevisionsCollection(0)
+        self.Fields = FakeFieldsCollection(0)
+        self.TablesOfContents = FakeCollection()
+        self.Content = FakeRange()
+        self.AttachedTemplate = SimpleNamespace(FullName="C:/Templates/normal.dotm")
+        self.BuiltInDocumentProperties = FakePropertyCollection([FakeProperty("Title", "Report")])
+        self.CustomDocumentProperties = FakePropertyCollection([FakeProperty("Project", "CLI")])
+        self.ComputeStatistics = Mock(side_effect=lambda constant: {43: 2, 44: 10, 45: 50, 46: 3}[constant])
 
 
 class FakeDocumentCollection:
@@ -174,6 +279,7 @@ class FakeWordApp:
         self.Quit = Mock()
         self.CompareDocuments = Mock()
         self.MergeDocuments = Mock()
+        self.Selection = SimpleNamespace(Range=FakeRange())
 
     @property
     def ActiveDocument(self):
@@ -196,6 +302,21 @@ class FakeClient:
         self.quit = Mock()
         self.compare = Mock()
         self.merge = Mock()
+        self.find = Mock(return_value=[])
+        self.replace = Mock(return_value=0)
+        self.set_track_changes = Mock(return_value=True)
+        self.accept_revisions = Mock(return_value=0)
+        self.reject_revisions = Mock(return_value=0)
+        self.list_comments = Mock(return_value=[])
+        self.export_comments = Mock()
+        self.delete_comments = Mock(return_value=0)
+        self.update_fields = Mock(return_value={"fields": 0, "tables_of_contents": 0})
+        self.info = Mock(return_value={"name": "foo.docx"})
+        self.statistics = Mock(return_value={"pages": 1})
+        self.list_properties = Mock(return_value=[])
+        self.get_property = Mock(return_value={"kind": "custom", "name": "Project", "value": "CLI"})
+        self.set_property = Mock(return_value={"kind": "custom", "name": "Project", "value": "CLI"})
+        self.delete_property = Mock(return_value=True)
 
 
 def make_document(name: str, saved: bool = True):
@@ -204,8 +325,8 @@ def make_document(name: str, saved: bool = True):
     document.saved = saved
     document.activate = Mock()
     document.save = Mock()
+    document.save_copy = Mock(return_value=str(Path(name).resolve()))
     document.close = Mock()
     document.export_fixed_format = Mock()
     document.print_out = Mock()
     return document
-

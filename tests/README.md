@@ -3,8 +3,7 @@
 What is covered:
 - CLI command behavior through the Click command group in `msword_cli.cli`
 - High-level API behavior for `WordClient` and `Document`
-- Newer compare/merge flows and helper behavior such as lazy client init and
-  error conversion
+- Compare/merge flows and helper behavior such as lazy client init, public `native` COM escape hatches, error conversion, and the newer review/content/property commands (`find`, `replace`, comments, revisions, fields, properties, info, statistics)
 
 Design notes:
 - Tests use mocked COM / `pywin32` objects and do not require Microsoft Word to
@@ -16,9 +15,8 @@ Run the suite from the project root:
 
 ```bash
 uv sync --dev
-uv run pytest -q
+uv run --no-sync pytest -q
 ```
-
 
 Integration tests:
 - Live Word COM tests live in `tests/integration/`.
@@ -29,5 +27,5 @@ Integration tests:
 
 ```bash
 $env:MSWORD_RUN_INTEGRATION="1"
-uv run pytest -q -m integration
+uv run --no-sync pytest -q -m integration
 ```

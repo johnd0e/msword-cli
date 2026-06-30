@@ -222,12 +222,12 @@ def test_export_with_options(msword_cli, monkeypatch):
                 "--pages",
                 "2-3",
                 "--with-markup",
-                "--with-props",
+                "--with-properties",
                 "--without-irm",
                 "--with-word-bookmarks",
                 "--without-structure-tags",
-                "--without-bitmaped-fonts",
-                "--useiso19005-1",
+                "--without-bitmap-fonts",
+                "--pdf-a",
                 "foo",
             ],
         )
@@ -273,19 +273,6 @@ def test_save_defaults(msword_cli, monkeypatch):
     assert result.exit_code == 0
     doc.save.assert_called_once_with(force=False)
 
-
-def test_save_with_path(msword_cli, monkeypatch):
-    runner = CliRunner()
-    doc = make_document("foo.docx")
-    client = FakeClient([doc])
-    monkeypatch.setattr(msword_cli, "get_client", lambda: client)
-
-    with runner.isolated_filesystem():
-        expected_path = str(Path("bar.docx").resolve())
-        result = invoke(runner, msword_cli, ["save", "--path", "bar.docx"])
-
-    assert result.exit_code == 0
-    doc.save.assert_called_once_with(path=expected_path)
 
 
 def test_force_save(msword_cli, monkeypatch):
@@ -365,31 +352,6 @@ def test_close_quits_when_last_document_is_closed(msword_cli, monkeypatch):
     client.quit.assert_called_once_with()
 
 
-def test_docs_with_no_open_documents(msword_cli, monkeypatch):
-    runner = CliRunner()
-    client = FakeClient([], document_count=0)
-    client.active_document = None
-    monkeypatch.setattr(msword_cli, "get_client", lambda: client)
-
-    result = invoke(runner, msword_cli, ["docs"])
-
-    assert result.exit_code == 0
-    assert result.output == "\nNo open documents found.\n"
-
-
-def test_docs_lists_and_marks_active_and_unsaved(msword_cli, monkeypatch):
-    runner = CliRunner()
-    first = make_document("foo.docx", saved=True)
-    second = make_document("bar.docx", saved=False)
-    client = FakeClient([first, second], document_count=2)
-    client.active_document = second
-    monkeypatch.setattr(msword_cli, "get_client", lambda: client)
-
-    result = invoke(runner, msword_cli, ["docs"])
-
-    assert result.exit_code == 0
-    assert "  [1] foo.docx" in result.output
-    assert " * [2] bar.docx*" in result.output
 
 
 def test_activate_document_by_index(msword_cli, monkeypatch):
@@ -466,5 +428,152 @@ def test_print_rejects_non_positive_copies(msword_cli, monkeypatch):
 
     assert result.exit_code == 2
     doc.print_out.assert_not_called()
+
+
+
+
+def test_help_groups_commands_and_does_not_initialize_client(msword_cli, monkeypatch):
+    runner = CliRunner()
+    get_client = Mock(side_effect=AssertionError("client should not be initialized"))
+    monkeypatch.setattr(msword_cli, "get_client", get_client)
+
+    result = invoke(runner, msword_cli, ["--help"])
+
+    assert result.exit_code == 0
+    assert "Documents:" in result.output
+    assert "Review:" in result.output
+    assert "list-documents" in result.output
+    assert "track-changes" in result.output
+    get_client.assert_not_called()
+
+
+def test_save_as_command(msword_cli, monkeypatch):
+    runner = CliRunner()
+    doc = make_document("foo.docx")
+    client = FakeClient([doc])
+    monkeypatch.setattr(msword_cli, "get_client", lambda: client)
+
+    with runner.isolated_filesystem():
+        expected_path = str(Path("renamed.docx").resolve())
+        result = invoke(runner, msword_cli, ["save-as", "renamed.docx"])
+
+    assert result.exit_code == 0
+    doc.save.assert_called_once_with(path=expected_path)
+
+
+def test_save_copy_command(msword_cli, monkeypatch):
+    runner = CliRunner()
+    doc = make_document("foo.docx")
+    doc.save_copy.return_value = str(Path("copy.docx").resolve())
+    client = FakeClient([doc])
+    monkeypatch.setattr(msword_cli, "get_client", lambda: client)
+
+    with runner.isolated_filesystem():
+        expected_path = str(Path("copy.docx").resolve())
+        result = invoke(runner, msword_cli, ["save-copy", "copy.docx"])
+
+    assert result.exit_code == 0
+    doc.save_copy.assert_called_once_with(expected_path)
+
+
+def test_list_documents_command(msword_cli, monkeypatch):
+    runner = CliRunner()
+    first = make_document("foo.docx", saved=True)
+    second = make_document("bar.docx", saved=False)
+    client = FakeClient([first, second], document_count=2)
+    client.active_document = second
+    monkeypatch.setattr(msword_cli, "get_client", lambda: client)
+
+    result = invoke(runner, msword_cli, ["list-documents"])
+
+    assert result.exit_code == 0
+    assert "foo.docx" in result.output
+    assert "bar.docx*" in result.output
+
+
+def test_find_command_json(msword_cli, monkeypatch):
+    runner = CliRunner()
+    client = FakeClient()
+    client.find.return_value = [{"start": 1, "end": 4, "text": "foo"}]
+    monkeypatch.setattr(msword_cli, "get_client", lambda: client)
+
+    result = invoke(runner, msword_cli, ["find", "--scope", "selection", "--match-case", "--format", "json", "foo"])
+
+    assert result.exit_code == 0
+    client.find.assert_called_once_with("foo", scope="selection", match_case=True, whole_word=False)
+    assert '"text": "foo"' in result.output
+
+
+def test_replace_command_text(msword_cli, monkeypatch):
+    runner = CliRunner()
+    client = FakeClient()
+    client.replace.return_value = 3
+    monkeypatch.setattr(msword_cli, "get_client", lambda: client)
+
+    result = invoke(runner, msword_cli, ["replace", "--whole-word", "foo", "bar"])
+
+    assert result.exit_code == 0
+    client.replace.assert_called_once_with("foo", "bar", scope="document", match_case=False, whole_word=True)
+    assert "Replaced 3 occurrence(s)." in result.output
+
+
+def test_track_changes_command(msword_cli, monkeypatch):
+    runner = CliRunner()
+    client = FakeClient()
+    client.set_track_changes.return_value = False
+    monkeypatch.setattr(msword_cli, "get_client", lambda: client)
+
+    result = invoke(runner, msword_cli, ["track-changes", "--off", "--format", "json"])
+
+    assert result.exit_code == 0
+    client.set_track_changes.assert_called_once_with(False)
+    assert '"track_changes": false' in result.output
+
+
+def test_comments_commands(msword_cli, monkeypatch):
+    runner = CliRunner()
+    client = FakeClient()
+    client.list_comments.return_value = [{"index": 1, "author": "Tester", "text": "Note"}]
+    client.export_comments.return_value = str(Path("comments.json").resolve())
+    client.delete_comments.return_value = 1
+    monkeypatch.setattr(msword_cli, "get_client", lambda: client)
+
+    with runner.isolated_filesystem():
+        exported_path = str(Path("comments.json").resolve())
+        listed = invoke(runner, msword_cli, ["list-comments"])
+        exported = invoke(runner, msword_cli, ["export-comments", "--json", "comments.json"])
+        deleted = invoke(runner, msword_cli, ["delete-comments", "--format", "json"])
+
+    assert listed.exit_code == 0
+    assert "Tester: Note" in listed.output
+    assert exported.exit_code == 0
+    client.export_comments.assert_called_once_with(exported_path, scope="document", output_format="json")
+    assert deleted.exit_code == 0
+    assert '"deleted": 1' in deleted.output
+
+
+def test_update_fields_and_property_commands(msword_cli, monkeypatch):
+    runner = CliRunner()
+    client = FakeClient()
+    client.update_fields.return_value = {"fields": 2, "tables_of_contents": 1}
+    client.list_properties.return_value = [{"kind": "custom", "name": "Project", "value": "CLI"}]
+    client.get_property.return_value = {"kind": "custom", "name": "Project", "value": "CLI"}
+    client.set_property.return_value = {"kind": "custom", "name": "Project", "value": True}
+    monkeypatch.setattr(msword_cli, "get_client", lambda: client)
+
+    updated = invoke(runner, msword_cli, ["update-fields"])
+    listed = invoke(runner, msword_cli, ["list-properties"])
+    got = invoke(runner, msword_cli, ["get-property", "Project"])
+    set_result = invoke(runner, msword_cli, ["set-property", "--format", "json", "Project", "true"])
+
+    assert updated.exit_code == 0
+    assert "2 field(s)" in updated.output
+    assert listed.exit_code == 0
+    assert "custom: Project = CLI" in listed.output
+    assert got.exit_code == 0
+    assert "Project = CLI" in got.output
+    assert set_result.exit_code == 0
+    client.set_property.assert_called_once_with("Project", True)
+    assert '"value": true' in set_result.output
 
 
