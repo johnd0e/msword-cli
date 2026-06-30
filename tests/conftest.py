@@ -1,12 +1,45 @@
 import importlib
 import os
 import sys
+from click.testing import CliRunner
+import uuid
+from contextlib import contextmanager
+import shutil
+import tempfile
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
 
+@pytest.fixture(scope="session", autouse=True)
+def test_tempdir():
+    root = Path(__file__).resolve().parents[1] / ".pytest-tmp"
+    root.mkdir(exist_ok=True)
+    os.environ["TMPDIR"] = str(root)
+    yield
+
+
+
+
+@pytest.fixture(autouse=True)
+def patch_click_isolated_filesystem(monkeypatch):
+    @contextmanager
+    def isolated_filesystem(self, temp_dir=None):
+        base = Path(temp_dir) if temp_dir is not None else Path(__file__).resolve().parents[1] / ".pytest-tmp"
+        base.mkdir(parents=True, exist_ok=True)
+        cwd = Path.cwd()
+        target = base / f"tmp-{uuid.uuid4().hex}"
+        target.mkdir()
+        try:
+            os.chdir(target)
+            yield str(target)
+        finally:
+            os.chdir(cwd)
+            shutil.rmtree(target, ignore_errors=True)
+
+    monkeypatch.setattr(CliRunner, "isolated_filesystem", isolated_filesystem)
+    yield
 
 def _make_pywin32_stubs():
     pywintypes = ModuleType("pywintypes")
