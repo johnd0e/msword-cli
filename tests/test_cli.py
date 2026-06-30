@@ -21,7 +21,7 @@ def test_open_defaults(msword_cli, monkeypatch):
         result = invoke(runner, msword_cli, ["open", "foo.docx"])
 
     assert result.exit_code == 0
-    client.open.assert_called_once_with(expected_path, visible=True)
+    client.open.assert_called_once_with(expected_path, visible=True, read_only=False, repair=False)
 
 
 def test_open_hide(msword_cli, monkeypatch):
@@ -35,7 +35,21 @@ def test_open_hide(msword_cli, monkeypatch):
         result = invoke(runner, msword_cli, ["open", "--hide", "foo.docx"])
 
     assert result.exit_code == 0
-    client.open.assert_called_once_with(expected_path, visible=False)
+    client.open.assert_called_once_with(expected_path, visible=False, read_only=False, repair=False)
+
+
+def test_open_readonly_and_repair(msword_cli, monkeypatch):
+    runner = CliRunner()
+    client = FakeClient()
+    monkeypatch.setattr(msword_cli, "get_client", lambda: client)
+
+    with runner.isolated_filesystem():
+        Path("foo.docx").touch()
+        expected_path = str(Path("foo.docx").resolve())
+        result = invoke(runner, msword_cli, ["open", "--hide", "--readonly", "--repair", "foo.docx"])
+
+    assert result.exit_code == 0
+    client.open.assert_called_once_with(expected_path, visible=False, read_only=True, repair=True)
 
 
 def test_new_defaults(msword_cli, monkeypatch):
@@ -552,6 +566,61 @@ def test_comments_commands(msword_cli, monkeypatch):
     assert '"deleted": 1' in deleted.output
 
 
+def test_summary_command_text(msword_cli, monkeypatch):
+    runner = CliRunner()
+    client = FakeClient()
+    client.summary.return_value = {
+        "name": "foo.docx",
+        "path": "C:/docs/foo.docx",
+        "saved": True,
+        "read_only": False,
+        "track_changes": True,
+        "revisions": 2,
+        "comments": 1,
+        "template": "C:/Templates/normal.dotm",
+        "author": "Alice",
+        "last_author": "Bob",
+        "created_at": "2026-06-01T09:30:00",
+        "modified_at": "2026-06-29T18:45:00",
+    }
+    monkeypatch.setattr(msword_cli, "get_client", lambda: client)
+
+    result = invoke(runner, msword_cli, ["summary"])
+
+    assert result.exit_code == 0
+    client.summary.assert_called_once_with()
+    assert "name: foo.docx" in result.output
+    assert "author: Alice" in result.output
+    assert "created_at: 2026-06-01T09:30:00" in result.output
+
+
+def test_summary_command_json(msword_cli, monkeypatch):
+    runner = CliRunner()
+    client = FakeClient()
+    client.summary.return_value = {"name": "foo.docx", "created_at": None}
+    monkeypatch.setattr(msword_cli, "get_client", lambda: client)
+
+    result = invoke(runner, msword_cli, ["summary", "--format", "json"])
+
+    assert result.exit_code == 0
+    client.summary.assert_called_once_with()
+    assert '"name": "foo.docx"' in result.output
+    assert '"created_at": null' in result.output
+
+
+def test_help_shows_summary_and_hides_info(msword_cli, monkeypatch):
+    runner = CliRunner()
+    get_client = Mock(side_effect=AssertionError("client should not be initialized"))
+    monkeypatch.setattr(msword_cli, "get_client", get_client)
+
+    result = invoke(runner, msword_cli, ["--help"])
+
+    assert result.exit_code == 0
+    assert "summary" in result.output
+    assert "info" not in result.output
+    get_client.assert_not_called()
+
+
 def test_update_fields_and_property_commands(msword_cli, monkeypatch):
     runner = CliRunner()
     client = FakeClient()
@@ -575,5 +644,15 @@ def test_update_fields_and_property_commands(msword_cli, monkeypatch):
     assert set_result.exit_code == 0
     client.set_property.assert_called_once_with("Project", True)
     assert '"value": true' in set_result.output
+
+
+def test_summary_help_mentions_document_state(msword_cli):
+    runner = CliRunner()
+
+    result = invoke(runner, msword_cli, ["summary", "--help"])
+
+    assert result.exit_code == 0
+    assert "state" in result.output.lower()
+    assert "properties" not in result.output.lower()
 
 

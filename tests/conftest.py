@@ -1,4 +1,5 @@
 import importlib
+import datetime as dt
 import os
 import shutil
 import sys
@@ -236,6 +237,7 @@ class FakeComDocument:
         self.Name = name
         self.Saved = saved
         self.FullName = str(Path(name).resolve())
+        self.ReadOnly = False
         self.TrackRevisions = False
         self.Activate = Mock()
         self.Save = Mock()
@@ -250,7 +252,15 @@ class FakeComDocument:
         self.TablesOfContents = FakeCollection()
         self.Content = FakeRange()
         self.AttachedTemplate = SimpleNamespace(FullName="C:/Templates/normal.dotm")
-        self.BuiltInDocumentProperties = FakePropertyCollection([FakeProperty("Title", "Report")])
+        self.BuiltInDocumentProperties = FakePropertyCollection(
+            [
+                FakeProperty("Title", "Report"),
+                FakeProperty("Author", "Alice"),
+                FakeProperty("Last Author", "Bob"),
+                FakeProperty("Creation Date", dt.datetime(2026, 6, 1, 9, 30, 0)),
+                FakeProperty("Last Save Time", dt.datetime(2026, 6, 29, 18, 45, 0)),
+            ]
+        )
         self.CustomDocumentProperties = FakePropertyCollection([FakeProperty("Project", "CLI")])
         self.ComputeStatistics = Mock(side_effect=lambda constant: {43: 2, 44: 10, 45: 50, 46: 3}[constant])
 
@@ -311,7 +321,7 @@ class FakeClient:
         self.export_comments = Mock()
         self.delete_comments = Mock(return_value=0)
         self.update_fields = Mock(return_value={"fields": 0, "tables_of_contents": 0})
-        self.info = Mock(return_value={"name": "foo.docx"})
+        self.summary = Mock(return_value={"name": "foo.docx"})
         self.statistics = Mock(return_value={"pages": 1})
         self.list_properties = Mock(return_value=[])
         self.get_property = Mock(return_value={"kind": "custom", "name": "Project", "value": "CLI"})

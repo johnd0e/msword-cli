@@ -91,7 +91,7 @@ document.
 | Documents | `open`, `new`, `save`, `save-as`, `save-copy`, `close`, `list-documents`, `activate`, `compare`, `merge` |
 | Content | `find`, `replace`, `print`, `export`, `update-fields` |
 | Review | `track-changes`, `accept-revisions`, `reject-revisions`, `list-comments`, `export-comments`, `delete-comments` |
-| Properties | `info`, `statistics`, `list-properties`, `get-property`, `set-property`, `delete-property` |
+| Document Data | `summary`, `statistics`, `list-properties`, `get-property`, `set-property`, `delete-property` |
 
 For a complete list of options for any subcommand, run:
 
@@ -103,11 +103,15 @@ msw <command> --help
 
 ```bash
 msw open my.docx save-as renamed.docx close
+msw open --readonly my.docx summary close
 msw open my.docx find --format json invoice close
 msw open draft.docx track-changes --on replace old new save close
 msw open review.docx list-comments export-comments --json comments.json close
 msw open report.docx update-fields export --pdf-a --with-properties . close
 ```
+
+`summary` is the curated overview for document state and common metadata. The
+`*-property*` commands expose raw built-in/custom Word properties directly.
 ### Listing open documents
 
 ```bash

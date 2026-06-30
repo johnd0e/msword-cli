@@ -8,6 +8,7 @@
 
 import json
 import sys
+from datetime import date, datetime
 from functools import wraps
 from importlib.metadata import entry_points
 from pathlib import Path
@@ -102,6 +103,14 @@ def _json_dump(value: Any) -> str:
 
 def _normalize_output_path(path: str) -> str:
     return str(Path(path).resolve())
+
+
+def _normalize_summary_value(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
 
 
 class Document:
@@ -302,6 +311,13 @@ class WordClient:
             "scope_text": _safe_getattr(_safe_getattr(comment, "Scope", None), "Text", None),
         }
 
+    def _built_in_property_value(self, document: Any, name: str) -> Any:
+        try:
+            item = self._get_property_from_collection(document.BuiltInDocumentProperties, name)
+        except WordAPIError:
+            return None
+        return _normalize_summary_value(_safe_getattr(item, "Value", None))
+
     @property
     def closed(self) -> bool:
         return self._word is None
@@ -339,10 +355,15 @@ class WordClient:
     def document_count(self) -> int:
         return self.native.Documents.Count
 
-    def open(self, path: str, visible: bool = True) -> Document:
+    def open(self, path: str, visible: bool = True, read_only: bool = False, repair: bool = False) -> Document:
         try:
             word = self.native
-            doc = word.Documents.Open(FileName=_normalize_output_path(path), Visible=visible)
+            doc = word.Documents.Open(
+                FileName=_normalize_output_path(path),
+                Visible=visible,
+                ReadOnly=read_only,
+                OpenAndRepair=repair,
+            )
             if visible and not word.Visible:
                 word.Visible = True
             return Document(doc)
@@ -640,17 +661,22 @@ class WordClient:
                 stats[key] = None
         return stats
 
-    def info(self) -> Dict[str, Any]:
+    def summary(self) -> Dict[str, Any]:
         doc = self.active_document
         native = doc.native
         return {
             "name": doc.name,
             "path": _safe_getattr(native, "FullName", None),
             "saved": doc.saved,
+            "read_only": bool(_safe_getattr(native, "ReadOnly", False)),
             "track_changes": bool(_safe_getattr(native, "TrackRevisions", False)),
             "revisions": _safe_getattr(_safe_getattr(native, "Revisions", None), "Count", 0) or 0,
             "comments": _safe_getattr(_safe_getattr(native, "Comments", None), "Count", 0) or 0,
             "template": _safe_getattr(_safe_getattr(native, "AttachedTemplate", None), "FullName", None),
+            "author": self._built_in_property_value(native, "Author"),
+            "last_author": self._built_in_property_value(native, "Last Author"),
+            "created_at": self._built_in_property_value(native, "Creation Date"),
+            "modified_at": self._built_in_property_value(native, "Last Save Time"),
         }
 
     def quit(self) -> None:
@@ -750,7 +776,7 @@ class SectionedHelpGroup(click.Group):
         "Documents": ["open", "new", "save", "save-as", "save-copy", "close", "activate", "list-documents", "compare", "merge"],
         "Content": ["find", "replace", "update-fields", "print", "export"],
         "Review": ["track-changes", "accept-revisions", "reject-revisions", "list-comments", "export-comments", "delete-comments"],
-        "Properties": ["info", "statistics", "list-properties", "get-property", "set-property", "delete-property"],
+        "Document Data": ["summary", "statistics", "list-properties", "get-property", "set-property", "delete-property"],
     }
 
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
@@ -808,10 +834,12 @@ def cli() -> None:
 @cli.command("open", short_help="Open a document.", help="Open an existing document and make it active.")
 @click.argument("path", type=click.Path(exists=True, resolve_path=True))
 @click.option("--show/--hide", default=True, help="Display or hide the document.")
+@click.option("--readonly", "read_only", is_flag=True, help="Open without write access when Word supports it.")
+@click.option("--repair", is_flag=True, help="Ask Word to repair the document while opening it.")
 @handle_api_error
-def open_cmd(path: str, show: bool) -> None:
+def open_cmd(path: str, show: bool, read_only: bool, repair: bool) -> None:
     click.echo(f'Opening document at "{path}"')
-    get_client().open(path, visible=show)
+    get_client().open(path, visible=show, read_only=read_only, repair=repair)
 
 
 @cli.command("new", short_help="Create a new document.", help="Create a new document, optionally from a template.")
@@ -1081,15 +1109,15 @@ def update_fields_cmd(scope: str, output_format: str) -> None:
         click.echo(f'Updated {result["fields"]} field(s)' + (f' and {result["tables_of_contents"]} table(s) of contents.' if result["tables_of_contents"] else "."))
 
 
-@cli.command("info", short_help="Show active document info.", help="Show metadata and state for the active document.")
+@cli.command("summary", short_help="Show active document summary.", help="Show active document state plus a small set of common metadata.")
 @_format_option
 @handle_api_error
-def info_cmd(output_format: str) -> None:
-    info = get_client().info()
+def summary_cmd(output_format: str) -> None:
+    summary = get_client().summary()
     if output_format == "json":
-        _emit_data(info, output_format)
+        _emit_data(summary, output_format)
         return
-    for key, value in info.items():
+    for key, value in summary.items():
         click.echo(f"{key}: {value}")
 
 
@@ -1105,8 +1133,8 @@ def statistics_cmd(output_format: str) -> None:
         click.echo(f"{key}: {value}")
 
 
-@cli.command("list-properties", short_help="List document properties.", help="List built-in and custom document properties.")
-@click.option("--kind", type=click.Choice(["all", "built-in", "custom"]), default="all", show_default=True, help="Choose which property set to inspect.")
+@cli.command("list-properties", short_help="List raw document properties.", help="List built-in and custom Word document properties without curating the output.")
+@click.option("--kind", type=click.Choice(["all", "built-in", "custom"]), default="all", show_default=True, help="Choose which raw property set to inspect.")
 @_format_option
 @handle_api_error
 def list_properties_cmd(kind: str, output_format: str) -> None:
@@ -1121,7 +1149,7 @@ def list_properties_cmd(kind: str, output_format: str) -> None:
         click.echo(f'{item["kind"]}: {item["name"]} = {item["value"]}')
 
 
-@cli.command("get-property", short_help="Read one document property.", help="Read a built-in or custom document property.")
+@cli.command("get-property", short_help="Read one raw property.", help="Read one built-in or custom Word document property by name.")
 @click.argument("name")
 @_format_option
 @handle_api_error
@@ -1130,7 +1158,7 @@ def get_property_cmd(name: str, output_format: str) -> None:
     _emit_data(prop, output_format) if output_format == "json" else click.echo(f'{prop["kind"]}: {prop["name"]} = {prop["value"]}')
 
 
-@cli.command("set-property", short_help="Write one document property.", help="Write a built-in or custom document property.")
+@cli.command("set-property", short_help="Write one raw property.", help="Write a built-in or custom Word document property by name.")
 @click.argument("name")
 @click.argument("value")
 @_format_option
@@ -1140,7 +1168,7 @@ def set_property_cmd(name: str, value: str, output_format: str) -> None:
     _emit_data(prop, output_format) if output_format == "json" else click.echo(f'Set {prop["kind"]} property {prop["name"]} = {prop["value"]}')
 
 
-@cli.command("delete-property", short_help="Delete one custom property.", help="Delete a custom document property.")
+@cli.command("delete-property", short_help="Delete one custom raw property.", help="Delete a custom Word document property by name.")
 @click.argument("name")
 @_format_option
 @handle_api_error

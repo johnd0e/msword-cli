@@ -5,7 +5,7 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from tests.conftest import FakeCollection, FakeComment, FakeCommentsCollection, FakeComDocument, FakeFieldsCollection, FakeRevisionsCollection, FakeWordApp
+from tests.conftest import FakeCollection, FakeComment, FakeCommentsCollection, FakeComDocument, FakeFieldsCollection, FakePropertyCollection, FakeRevisionsCollection, FakeWordApp
 
 
 def test_merge_command_passes_new_options(msword_cli, monkeypatch):
@@ -205,6 +205,24 @@ def test_word_client_compare_uses_word_username_by_default(msword_cli, monkeypat
     revised_doc.Close.assert_called_once_with(msword_cli.C.wdDoNotSaveChanges)
 
 
+def test_word_client_open_passes_readonly_and_repair(msword_cli, monkeypatch):
+    com_doc = FakeComDocument("report.docx")
+    app = FakeWordApp([com_doc])
+    app.Documents.Open.return_value = com_doc
+    monkeypatch.setattr(msword_cli.com.gencache, "EnsureDispatch", Mock(return_value=app))
+
+    client = msword_cli.WordClient(visible=False)
+    result = client.open("report.docx", visible=False, read_only=True, repair=True)
+
+    assert isinstance(result, msword_cli.Document)
+    app.Documents.Open.assert_called_once_with(
+        FileName=str(Path("report.docx").resolve()),
+        Visible=False,
+        ReadOnly=True,
+        OpenAndRepair=True,
+    )
+
+
 def test_word_client_compare_accepts_explicit_author_and_flags(msword_cli, monkeypatch):
     original_doc = Mock()
     revised_doc = Mock()
@@ -392,7 +410,60 @@ def test_word_client_export_comments_writes_json(msword_cli, monkeypatch):
     assert '"author": "Alice"' in content
 
 
-def test_word_client_update_fields_find_replace_properties_and_info(msword_cli, monkeypatch):
+def test_word_client_summary_normalizes_metadata(msword_cli, monkeypatch):
+    com_doc = FakeComDocument("report.docx")
+    com_doc.ReadOnly = True
+    com_doc.TrackRevisions = True
+    com_doc.Revisions = FakeRevisionsCollection(3)
+    com_doc.Comments = FakeCommentsCollection([FakeComment(author="Alice", text="One")])
+    app = FakeWordApp([com_doc])
+    monkeypatch.setattr(msword_cli.com.gencache, "EnsureDispatch", Mock(return_value=app))
+
+    client = msword_cli.WordClient(visible=False)
+    summary = client.summary()
+
+    assert summary == {
+        "name": "report.docx",
+        "path": str(Path("report.docx").resolve()),
+        "saved": True,
+        "read_only": True,
+        "track_changes": True,
+        "revisions": 3,
+        "comments": 1,
+        "template": "C:/Templates/normal.dotm",
+        "author": "Alice",
+        "last_author": "Bob",
+        "created_at": "2026-06-01T09:30:00",
+        "modified_at": "2026-06-29T18:45:00",
+    }
+
+
+def test_word_client_summary_returns_none_for_missing_metadata(msword_cli, monkeypatch):
+    com_doc = FakeComDocument("report.docx")
+    com_doc.BuiltInDocumentProperties = FakePropertyCollection([])
+    com_doc.AttachedTemplate = None
+    app = FakeWordApp([com_doc])
+    monkeypatch.setattr(msword_cli.com.gencache, "EnsureDispatch", Mock(return_value=app))
+
+    client = msword_cli.WordClient(visible=False)
+    summary = client.summary()
+
+    assert summary["author"] is None
+    assert summary["last_author"] is None
+    assert summary["created_at"] is None
+    assert summary["modified_at"] is None
+    assert summary["template"] is None
+
+
+def test_json_dump_serializes_datetimes(msword_cli):
+    payload = {"created_at": msword_cli._normalize_summary_value("2026-06-01T09:30:00")}
+
+    dumped = msword_cli._json_dump(payload)
+
+    assert '"created_at": "2026-06-01T09:30:00"' in dumped
+
+
+def test_word_client_update_fields_find_replace_properties_and_summary(msword_cli, monkeypatch):
     com_doc = FakeComDocument("report.docx")
     com_doc.Fields = FakeFieldsCollection(2)
     toc = Mock()
@@ -410,12 +481,13 @@ def test_word_client_update_fields_find_replace_properties_and_info(msword_cli, 
     selection_result = client.update_fields(scope="selection")
     replaced = client.replace("foo", "bar", scope="selection")
     prop = client.set_property("Flag", True)
-    info = client.info()
+    summary = client.summary()
     stats = client.statistics()
 
     assert document_result == {"fields": 2, "tables_of_contents": 1}
     assert selection_result == {"fields": 1, "tables_of_contents": 0}
     assert replaced == 1
     assert prop["value"] is True
-    assert info["name"] == "report.docx"
+    assert summary["name"] == "report.docx"
+    assert summary["author"] == "Alice"
     assert stats["pages"] == 2

@@ -3,7 +3,7 @@
 What is covered:
 - CLI command behavior through the Click command group in `msword_cli.cli`
 - High-level API behavior for `WordClient` and `Document`
-- Compare/merge flows and helper behavior such as lazy client init, public `native` COM escape hatches, error conversion, and the newer review/content/property commands (`find`, `replace`, comments, revisions, fields, properties, info, statistics)
+- Compare/merge flows and helper behavior such as lazy client init, public `native` COM escape hatches, error conversion, and the newer review/content/property commands (`find`, `replace`, comments, revisions, fields, properties, summary, statistics)
 
 Design notes:
 - Tests use mocked COM / `pywin32` objects and do not require Microsoft Word to
