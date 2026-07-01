@@ -53,6 +53,10 @@ def _safe_getattr(obj: Any, name: str, default: Any = None) -> Any:
 def _iter_collection(collection: Any) -> Iterable[Any]:
     if collection is None:
         return []
+    try:
+        return list(collection)
+    except Exception:
+        pass
     count = _safe_getattr(collection, "Count", 0) or 0
     items = []
     for index in range(1, count + 1):
@@ -261,7 +265,8 @@ class WordClient:
         self._word = None
         try:
             self._word = com.gencache.EnsureDispatch("Word.Application")
-            self._word.Visible = visible
+            if visible:
+                self._word.Visible = True
         except com_error as error:
             raise WordAPIError(f"Failed to initialize Word: {_com_error_message(error)}") from error
         except Exception:

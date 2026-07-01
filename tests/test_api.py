@@ -1,4 +1,6 @@
+import datetime as dt
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import click
@@ -221,6 +223,15 @@ def test_word_client_open_passes_readonly_and_repair(msword_cli, monkeypatch):
         ReadOnly=True,
         OpenAndRepair=True,
     )
+
+
+def test_word_client_visible_false_does_not_hide_existing_word(msword_cli, monkeypatch):
+    app = FakeWordApp(visible=True)
+    monkeypatch.setattr(msword_cli.com.gencache, "EnsureDispatch", Mock(return_value=app))
+
+    msword_cli.WordClient(visible=False)
+
+    assert app.Visible is True
 
 
 def test_word_client_compare_accepts_explicit_author_and_flags(msword_cli, monkeypatch):
@@ -453,6 +464,48 @@ def test_word_client_summary_returns_none_for_missing_metadata(msword_cli, monke
     assert summary["created_at"] is None
     assert summary["modified_at"] is None
     assert summary["template"] is None
+
+
+def test_word_client_properties_support_iterable_only_com_collections(msword_cli, monkeypatch):
+    class IterableOnlyPropertyCollection:
+        def __init__(self, items):
+            self._items = list(items)
+
+        def __iter__(self):
+            return iter(self._items)
+
+    def prop(name, value):
+        return SimpleNamespace(Name=name, Value=value)
+
+    com_doc = FakeComDocument("report.docx")
+    com_doc.BuiltInDocumentProperties = IterableOnlyPropertyCollection(
+        [
+            prop("Author", "Alice"),
+            prop("Last Author", "Bob"),
+            prop("Creation Date", dt.datetime(2026, 6, 1, 9, 30, 0)),
+            prop("Last Save Time", dt.datetime(2026, 6, 29, 18, 45, 0)),
+        ]
+    )
+    com_doc.CustomDocumentProperties = IterableOnlyPropertyCollection([prop("Project", "CLI")])
+    app = FakeWordApp([com_doc])
+    monkeypatch.setattr(msword_cli.com.gencache, "EnsureDispatch", Mock(return_value=app))
+
+    client = msword_cli.WordClient(visible=False)
+
+    assert client.list_properties() == [
+        {"kind": "built-in", "name": "Author", "value": "Alice"},
+        {"kind": "built-in", "name": "Last Author", "value": "Bob"},
+        {"kind": "built-in", "name": "Creation Date", "value": dt.datetime(2026, 6, 1, 9, 30, 0)},
+        {"kind": "built-in", "name": "Last Save Time", "value": dt.datetime(2026, 6, 29, 18, 45, 0)},
+        {"kind": "custom", "name": "Project", "value": "CLI"},
+    ]
+
+    summary = client.summary()
+
+    assert summary["author"] == "Alice"
+    assert summary["last_author"] == "Bob"
+    assert summary["created_at"] == "2026-06-01T09:30:00"
+    assert summary["modified_at"] == "2026-06-29T18:45:00"
 
 
 def test_json_dump_serializes_datetimes(msword_cli):
