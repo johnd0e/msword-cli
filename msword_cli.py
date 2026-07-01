@@ -133,6 +133,10 @@ class Document:
         return self._doc.Name
 
     @property
+    def path(self) -> Optional[str]:
+        return _safe_getattr(self._doc, "FullName", None)
+
+    @property
     def saved(self) -> bool:
         return self._doc.Saved
 
@@ -763,6 +767,42 @@ def _emit_data(value: Any, output_format: str) -> None:
         click.echo(value)
 
 
+def _document_name(document: Any) -> str:
+    return _safe_getattr(document, "name", None) or "<unknown>"
+
+
+def _document_key(document: Any) -> Tuple[str, str]:
+    return (_safe_getattr(document, "path", None) or "", _document_name(document))
+
+
+def _remember_hidden_document(state: Dict[str, Any], document: Any, existing_keys: Iterable[Tuple[str, str]]) -> None:
+    key = _document_key(document)
+    if key in set(existing_keys):
+        return
+    tracked = state.setdefault("auto_close_documents", [])
+    if key not in {_document_key(item) for item in tracked}:
+        tracked.append(document)
+
+
+def _forget_hidden_document(state: Dict[str, Any], document: Any) -> None:
+    key = _document_key(document)
+    tracked = state.get("auto_close_documents", [])
+    state["auto_close_documents"] = [item for item in tracked if _document_key(item) != key]
+
+
+def _close_tracked_hidden_documents(state: Dict[str, Any]) -> None:
+    tracked = list(state.get("auto_close_documents", []))
+    if not tracked:
+        return
+    client = state.get("client")
+    for document in tracked:
+        click.echo(f'Auto closing hidden document "{_document_name(document)}"')
+        document.close(force=True)
+    state["auto_close_documents"] = []
+    if client is not None and client.document_count == 0:
+        client.quit()
+
+
 def _render_documents(client: WordClient) -> str:
     if client.document_count == 0:
         return "\nNo open documents found."
@@ -832,8 +872,12 @@ def add_compare_options(func):
 
 @click.group(chain=True, cls=SectionedHelpGroup)
 @click.option("--version", is_flag=True, callback=print_version, expose_value=False, is_eager=True)
-def cli() -> None:
+@click.pass_context
+def cli(ctx: click.Context) -> None:
     """Command line interface for Microsoft Word."""
+    state = ctx.ensure_object(dict)
+    state.setdefault("auto_close_documents", [])
+    ctx.call_on_close(lambda: _close_tracked_hidden_documents(state))
 
 
 @cli.command("open", short_help="Open a document.", help="Open an existing document and make it active.")
@@ -842,18 +886,32 @@ def cli() -> None:
 @click.option("--readonly", "read_only", is_flag=True, help="Open without write access when Word supports it.")
 @click.option("--repair", is_flag=True, help="Ask Word to repair the document while opening it.")
 @handle_api_error
-def open_cmd(path: str, show: bool, read_only: bool, repair: bool) -> None:
+@click.pass_context
+def open_cmd(ctx: click.Context, path: str, show: bool, read_only: bool, repair: bool) -> None:
     click.echo(f'Opening document at "{path}"')
-    get_client().open(path, visible=show, read_only=read_only, repair=repair)
+    client = get_client()
+    state = ctx.find_root().ensure_object(dict)
+    state["client"] = client
+    existing_keys = {_document_key(document) for document in client.documents}
+    document = client.open(path, visible=show, read_only=read_only, repair=repair)
+    if not show:
+        _remember_hidden_document(state, document, existing_keys)
 
 
 @cli.command("new", short_help="Create a new document.", help="Create a new document, optionally from a template.")
 @click.option("-t", "--template", type=CliTemplate(exists=True, dir_okay=False, resolve_path=True), help="Path to a Word template file.")
 @click.option("--show/--hide", default=True, help="Display or hide the document.")
 @handle_api_error
-def new_cmd(template: Optional[str], show: bool) -> None:
+@click.pass_context
+def new_cmd(ctx: click.Context, template: Optional[str], show: bool) -> None:
     click.echo(f'Opening new document using template: "{template}"' if template else "Opening new blank document.")
-    get_client().new(template=template, visible=show)
+    client = get_client()
+    state = ctx.find_root().ensure_object(dict)
+    state["client"] = client
+    existing_keys = {_document_key(document) for document in client.documents}
+    document = client.new(template=template, visible=show)
+    if not show:
+        _remember_hidden_document(state, document, existing_keys)
 
 
 PRINT_OUT_ITEMS = {
@@ -946,13 +1004,17 @@ def save_copy_cmd(path: str) -> None:
 @click.option("-a", "--all", "close_all", is_flag=True, help="Close all open documents.")
 @click.option("-f", "--force", is_flag=True, help="Discard unsaved changes without prompting.")
 @handle_api_error
-def close_cmd(close_all: bool, force: bool) -> None:
+@click.pass_context
+def close_cmd(ctx: click.Context, close_all: bool, force: bool) -> None:
     client = get_client()
+    state = ctx.find_root().ensure_object(dict)
+    state["client"] = client
     docs_to_close = client.documents if close_all else [client.active_document]
     action = "Force closing" if force else "Closing"
-    click.echo(f"{action} document(s)...")
     for document in docs_to_close:
+        click.echo(f'{action} document "{_document_name(document)}"')
         document.close(force=force)
+        _forget_hidden_document(state, document)
     if client.document_count == 0:
         client.quit()
 

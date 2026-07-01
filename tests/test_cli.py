@@ -38,6 +38,40 @@ def test_open_hide(msword_cli, monkeypatch):
     client.open.assert_called_once_with(expected_path, visible=False, read_only=False, repair=False)
 
 
+def test_open_hide_auto_closes_new_document(msword_cli, monkeypatch):
+    runner = CliRunner()
+    hidden_doc = make_document("foo.docx")
+    client = FakeClient(document_count=0)
+    client.open.return_value = hidden_doc
+    monkeypatch.setattr(msword_cli, "get_client", lambda: client)
+
+    with runner.isolated_filesystem():
+        Path("foo.docx").touch()
+        result = invoke(runner, msword_cli, ["open", "--hide", "foo.docx"])
+
+    assert result.exit_code == 0
+    hidden_doc.close.assert_called_once_with(force=True)
+    client.quit.assert_called_once_with()
+    assert 'Auto closing hidden document "foo.docx"' in result.output
+
+
+def test_open_hide_does_not_auto_close_preexisting_document(msword_cli, monkeypatch):
+    runner = CliRunner()
+    existing_doc = make_document("foo.docx")
+    reopened_doc = make_document("foo.docx")
+    client = FakeClient([existing_doc], document_count=1)
+    client.open.return_value = reopened_doc
+    monkeypatch.setattr(msword_cli, "get_client", lambda: client)
+
+    with runner.isolated_filesystem():
+        Path("foo.docx").touch()
+        result = invoke(runner, msword_cli, ["open", "--hide", "foo.docx"])
+
+    assert result.exit_code == 0
+    reopened_doc.close.assert_not_called()
+    client.quit.assert_not_called()
+
+
 def test_open_readonly_and_repair(msword_cli, monkeypatch):
     runner = CliRunner()
     client = FakeClient()
@@ -326,6 +360,7 @@ def test_close_defaults(msword_cli, monkeypatch):
     assert result.exit_code == 0
     doc.close.assert_called_once_with(force=False)
     client.quit.assert_not_called()
+    assert 'Closing document "foo.docx"' in result.output
 
 
 def test_force_close(msword_cli, monkeypatch):
@@ -338,6 +373,7 @@ def test_force_close(msword_cli, monkeypatch):
 
     assert result.exit_code == 0
     doc.close.assert_called_once_with(force=True)
+    assert 'Force closing document "foo.docx"' in result.output
 
 
 def test_close_all(msword_cli, monkeypatch):
@@ -352,6 +388,8 @@ def test_close_all(msword_cli, monkeypatch):
     assert result.exit_code == 0
     first.close.assert_called_once_with(force=True)
     second.close.assert_called_once_with(force=True)
+    assert 'Force closing document "foo.docx"' in result.output
+    assert 'Force closing document "bar.docx"' in result.output
 
 
 def test_close_quits_when_last_document_is_closed(msword_cli, monkeypatch):

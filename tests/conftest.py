@@ -332,6 +332,7 @@ class FakeClient:
 def make_document(name: str, saved: bool = True):
     document = Mock()
     document.name = name
+    document.path = str(Path(name).resolve())
     document.saved = saved
     document.activate = Mock()
     document.save = Mock()

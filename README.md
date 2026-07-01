@@ -104,6 +104,7 @@ msw <command> --help
 ```bash
 msw open my.docx save-as renamed.docx close
 msw open --readonly my.docx summary close
+msw open --hide my.docx summary
 msw open my.docx find --format json invoice close
 msw open draft.docx track-changes --on replace old new save close
 msw open review.docx list-comments export-comments --json comments.json close
@@ -135,6 +136,11 @@ msw open somedoc.docx print --copies 2 --pages "2-4, 6" close
 ```
 
 Options for a subcommand must appear immediately after that subcommand and before its positional arguments or the next command in the chain.
+
+Hidden opens are session-scoped. If you use `open --hide` or `new --hide`,
+the CLI will automatically close any document that it opened hidden and that
+was not already open before the command started. This avoids leaving behind a
+hidden Word document or background Word instance after the chain finishes.
 
 Chaining also lets you run the same command twice with different options.
 For example, to export to both PDF and XPS in one go:
