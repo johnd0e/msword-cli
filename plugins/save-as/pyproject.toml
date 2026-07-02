@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "msword-cli-save-as"
+version = "0.4.0"
+requires-python = ">=3.8"
+dependencies = [
+  "click>=8.0",
+  "pywin32>=306"
+]
+
+[project.entry-points."msw.plugin"]
+save-as = "msword_save_as_plugin:save_as_cmd"
+
+[tool.hatch.build.targets.wheel]
+include = ["msword_save_as_plugin.py"]

@@ -84,6 +84,10 @@ uv run msword_cli.py --help
 Unless otherwise specified, all subcommands operate on the currently active
 document.
 
+First-party plugins are installed by default with `msword-cli`. The `save-as`
+command is provided by that default plugin, while `export` remains the
+PDF/XPS-specific `ExportAsFixedFormat` route in the core.
+
 ### Command groups
 
 | Group | Commands |
@@ -103,6 +107,8 @@ msw <command> --help
 
 ```bash
 msw open my.docx save-as renamed.docx close
+msw open my.docx save-as renamed.pdf --format pdf close
+msw save-as --list-formats
 msw open --readonly my.docx summary close
 msw open --hide my.docx summary
 msw open my.docx find --format json invoice close

@@ -105,6 +105,33 @@ def _make_pywin32_stubs():
         msoPropertyTypeBoolean=48,
         msoPropertyTypeString=49,
         msoPropertyTypeFloat=50,
+        wdFormatRTF=51,
+        wdFormatDocument97=52,
+        wdFormatDocumentDefault=53,
+        wdFormatTemplate97=54,
+        wdFormatTemplate=55,
+        wdFormatHTML=56,
+        wdFormatFilteredHTML=57,
+        wdFormatWebArchive=58,
+        wdFormatOpenDocumentText=59,
+        wdFormatPDF=60,
+        wdFormatText=61,
+        wdFormatTextLineBreaks=62,
+        wdFormatDOSText=63,
+        wdFormatDOSTextLineBreaks=64,
+        wdFormatEncodedText=65,
+        wdFormatUnicodeText=66,
+        wdFormatXPS=67,
+        wdFormatXML=68,
+        wdFormatXMLDocument=69,
+        wdFormatXMLDocumentMacroEnabled=70,
+        wdFormatXMLTemplate=71,
+        wdFormatXMLTemplateMacroEnabled=72,
+        wdFormatFlatXML=73,
+        wdFormatFlatXMLMacroEnabled=74,
+        wdFormatFlatXMLTemplate=75,
+        wdFormatFlatXMLTemplateMacroEnabled=76,
+        wdFormatStrictOpenXMLDocument=77,
     )
     win32com.client = client
     return pywintypes, win32com, client
@@ -242,6 +269,7 @@ class FakeComDocument:
         self.Activate = Mock()
         self.Save = Mock()
         self.SaveAs = Mock()
+        self.SaveAs2 = Mock()
         self.SaveCopyAs = Mock()
         self.Close = Mock()
         self.ExportAsFixedFormat = Mock()
@@ -336,8 +364,11 @@ def make_document(name: str, saved: bool = True):
     document.saved = saved
     document.activate = Mock()
     document.save = Mock()
+    document.save_as_format = Mock(return_value=str(Path(name).resolve()))
     document.save_copy = Mock(return_value=str(Path(name).resolve()))
     document.close = Mock()
     document.export_fixed_format = Mock()
     document.print_out = Mock()
     return document
+
+

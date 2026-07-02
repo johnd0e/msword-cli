@@ -498,21 +498,6 @@ def test_help_groups_commands_and_does_not_initialize_client(msword_cli, monkeyp
     assert "track-changes" in result.output
     get_client.assert_not_called()
 
-
-def test_save_as_command(msword_cli, monkeypatch):
-    runner = CliRunner()
-    doc = make_document("foo.docx")
-    client = FakeClient([doc])
-    monkeypatch.setattr(msword_cli, "get_client", lambda: client)
-
-    with runner.isolated_filesystem():
-        expected_path = str(Path("renamed.docx").resolve())
-        result = invoke(runner, msword_cli, ["save-as", "renamed.docx"])
-
-    assert result.exit_code == 0
-    doc.save.assert_called_once_with(path=expected_path)
-
-
 def test_save_copy_command(msword_cli, monkeypatch):
     runner = CliRunner()
     doc = make_document("foo.docx")
@@ -692,5 +677,4 @@ def test_summary_help_mentions_document_state(msword_cli):
     assert result.exit_code == 0
     assert "state" in result.output.lower()
     assert "properties" not in result.output.lower()
-
 

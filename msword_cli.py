@@ -11,6 +11,8 @@ import sys
 from datetime import date, datetime
 from functools import wraps
 from importlib.metadata import entry_points
+from importlib.machinery import PathFinder
+from importlib.util import module_from_spec
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -18,6 +20,11 @@ import click
 from pywintypes import com_error
 from win32com import client as com
 from win32com.client import constants as C
+
+try:
+    import tomllib
+except ImportError:  # pragma: no cover - Python < 3.11
+    import tomli as tomllib
 
 VERSION = "0.4.0"
 __version__ = VERSION
@@ -824,6 +831,57 @@ class SectionedHelpGroup(click.Group):
         "Document Data": ["summary", "statistics", "list-properties", "get-property", "set-property", "delete-property"],
     }
 
+    def make_context(self, info_name: Optional[str], args: List[str], parent: Optional[click.Context] = None, **extra: Any) -> click.Context:
+        self._requested_plugin_dirs = ()
+        return super().make_context(info_name, args, parent=parent, **extra)
+
+    def set_plugin_dirs(self, plugin_dirs: Tuple[str, ...]) -> None:
+        self._requested_plugin_dirs = tuple(plugin_dirs)
+
+    def _ensure_plugins_loaded(self) -> None:
+        plugin_dirs = tuple(getattr(self, "_requested_plugin_dirs", ())) or _default_plugin_dirs()
+        signature = (plugin_dirs,)
+        if getattr(self, "_loaded_plugin_signature", None) == signature:
+            return
+        if not hasattr(self, "_core_commands"):
+            self._core_commands = dict(self.commands)
+        self.commands = dict(self._core_commands)
+        self._load_installed_plugins()
+        if plugin_dirs:
+            self._load_local_plugins(plugin_dirs)
+        self._loaded_plugin_signature = signature
+
+    def list_commands(self, ctx: click.Context) -> List[str]:
+        self._ensure_plugins_loaded()
+        return super().list_commands(ctx)
+
+    def get_command(self, ctx: click.Context, cmd_name: str) -> Optional[click.Command]:
+        self._ensure_plugins_loaded()
+        return super().get_command(ctx, cmd_name)
+
+    def _load_installed_plugins(self) -> None:
+        try:
+            eps = entry_points()
+            plugin_eps = eps.get("msw.plugin", []) if sys.version_info < (3, 10) else eps.select(group="msw.plugin")
+        except Exception as error:
+            click.echo(f"Warning: Failed to discover plugins: {error}", err=True)
+            return
+        for plugin in plugin_eps:
+            try:
+                self.add_command(plugin.load())
+            except Exception as error:
+                plugin_name = getattr(plugin, "name", "<unknown>")
+                click.echo(f"Warning: Failed to load plugin {plugin_name}: {error}", err=True)
+
+    def _load_local_plugins(self, plugin_dirs: Tuple[str, ...]) -> None:
+        for plugin_root in plugin_dirs:
+            for plugin_dir in _iter_local_plugin_dirs(plugin_root):
+                try:
+                    for name, target in _read_local_plugin_entry_points(plugin_dir).items():
+                        self.add_command(_load_local_plugin_command(plugin_dir, name, target))
+                except Exception as error:
+                    click.echo(f'Warning: Failed to load local plugin {plugin_dir}: {error}', err=True)
+
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         commands = []
         for subcommand_name in self.list_commands(ctx):
@@ -870,8 +928,64 @@ def add_compare_options(func):
     return func
 
 
+def _configure_plugin_dirs(ctx: click.Context, param: click.Parameter, value: Tuple[str, ...]) -> Tuple[str, ...]:
+    ctx.ensure_object(dict)["plugin_dirs"] = value
+    if isinstance(ctx.command, SectionedHelpGroup):
+        ctx.command.set_plugin_dirs(value)
+    return value
+
+
+def _default_plugin_dirs() -> Tuple[str, ...]:
+    plugin_root = Path(__file__).resolve().with_name("plugins")
+    if plugin_root.is_dir():
+        return (str(plugin_root),)
+    return ()
+
+
+def _iter_local_plugin_dirs(plugin_root: str) -> List[Path]:
+    root = Path(plugin_root)
+    if (root / "pyproject.toml").is_file():
+        return [root]
+    plugin_dirs = []
+    for child in sorted(root.iterdir(), key=lambda item: item.name.lower()):
+        if child.is_dir() and (child / "pyproject.toml").is_file():
+            plugin_dirs.append(child)
+    return plugin_dirs
+
+
+def _read_local_plugin_entry_points(plugin_dir: Path) -> Dict[str, str]:
+    with (plugin_dir / "pyproject.toml").open("rb") as config_file:
+        config = tomllib.load(config_file)
+    project = config.get("project", {})
+    entry_points_config = project.get("entry-points", {})
+    plugin_entries = entry_points_config.get("msw.plugin", {})
+    if not isinstance(plugin_entries, dict):
+        return {}
+    return {str(name): str(target) for name, target in plugin_entries.items()}
+
+
+def _load_local_plugin_command(plugin_dir: Path, plugin_name: str, target: str) -> click.Command:
+    module_name, separator, attribute_name = target.partition(":")
+    if not separator or not module_name or not attribute_name:
+        raise ValueError(f'Invalid plugin target "{target}"')
+    spec = PathFinder.find_spec(module_name, [str(plugin_dir)])
+    if spec is None or spec.loader is None:
+        raise ImportError(f'Cannot find module "{module_name}" in {plugin_dir}')
+    sys.modules.pop(module_name, None)
+    module = module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    command = getattr(module, attribute_name)
+    if not isinstance(command, click.Command):
+        raise TypeError(f'Plugin target "{target}" did not resolve to a Click command')
+    if command.name is None:
+        command.name = plugin_name
+    return command
+
+
 @click.group(chain=True, cls=SectionedHelpGroup)
 @click.option("--version", is_flag=True, callback=print_version, expose_value=False, is_eager=True)
+@click.option("--plugin-dir", "plugin_dirs", multiple=True, type=click.Path(exists=True, file_okay=False, resolve_path=True), callback=_configure_plugin_dirs, expose_value=False, is_eager=True, help="Load plugins from a local plugin root. Overrides installed plugins with the same command name.")
 @click.pass_context
 def cli(ctx: click.Context) -> None:
     """Command line interface for Microsoft Word."""
@@ -982,14 +1096,6 @@ def save_cmd(save_all: bool, force: bool) -> None:
     docs_to_save = client.documents if save_all else [client.active_document]
     for document in docs_to_save:
         document.save(force=force)
-
-
-@cli.command("save-as", short_help="Save the active document to a new path.", help="Save the active document to a new path.")
-@click.argument("path", type=click.Path(resolve_path=True))
-@handle_api_error
-def save_as_cmd(path: str) -> None:
-    click.echo(f'Saving active document as "{path}"')
-    get_client().active_document.save(path=path)
 
 
 @cli.command("save-copy", short_help="Save a copy without switching the active document.", help="Save a copy of the active document without changing the original.")
@@ -1243,21 +1349,6 @@ def delete_property_cmd(name: str, output_format: str) -> None:
     get_client().delete_property(name)
     payload = {"deleted": True, "name": name}
     _emit_data(payload, output_format) if output_format == "json" else click.echo(f'Deleted custom property "{name}".')
-
-
-try:
-    eps = entry_points()
-    plugin_eps = eps.get("msw.plugin", []) if sys.version_info < (3, 10) else eps.select(group="msw.plugin")
-except Exception as error:
-    click.echo(f"Warning: Failed to discover plugins: {error}", err=True)
-else:
-    for plugin in plugin_eps:
-        try:
-            cli.add_command(plugin.load())
-        except Exception as error:
-            plugin_name = getattr(plugin, "name", "<unknown>")
-            click.echo(f"Warning: Failed to load plugin {plugin_name}: {error}", err=True)
-
 
 if __name__ == "__main__":
     cli()
