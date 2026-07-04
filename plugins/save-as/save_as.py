@@ -366,8 +366,8 @@ def save_as(
 
 @click.command(
     "save-as",
-    short_help="Save the active document to a new path.",
-    help="Save the active document to a new path, optionally in another Word format.",
+    short_help="Save the active document to another path or format.",
+    help="Save the active document to another path or convert it to another supported Word format. Use --list-formats to inspect save formats available through the current Word installation.",
 )
 @click.argument("path", required=False, type=click.Path(resolve_path=True))
 @click.option("--list-formats", is_flag=True, help="List save formats available through Word on this system.")

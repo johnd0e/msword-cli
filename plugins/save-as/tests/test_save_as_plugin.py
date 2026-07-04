@@ -229,6 +229,18 @@ def test_save_as_command_is_exported(plugin):
     assert plugin.save_as_cmd.name == "save-as"
 
 
+def test_save_as_command_help_describes_formats_and_listing(plugin):
+    runner = CliRunner()
+
+    result = runner.invoke(plugin.save_as_cmd, ["--help"])
+
+    assert result.exit_code == 0
+    assert "Save the active document to another path" in result.output
+    assert "convert it to another supported" in result.output
+    assert "Word format" in result.output
+    assert "--list-formats" in result.output
+
+
 def test_plugin_manifest_exposes_cli_and_library_entries(plugin):
     assert plugin.plugin_manifest["name"] == "save-as"
     assert plugin.plugin_manifest["command"] is plugin.save_as_cmd

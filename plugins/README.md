@@ -20,6 +20,7 @@ remaining outside `msword_cli.py`. Current bundled examples include:
 
 Plugin-specific command usage lives with each plugin package:
 
+- [`plugins/save-as/README.md`](save-as/README.md)
 - [`plugins/compare-merge/README.md`](compare-merge/README.md)
 
 

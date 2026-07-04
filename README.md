@@ -185,6 +185,7 @@ guidance are documented in [plugins/README.md](plugins/README.md).
 
 Bundled plugin command docs:
 
+- [`save-as`](plugins/save-as/README.md)
 - [`compare-merge`](plugins/compare-merge/README.md)
 
 
