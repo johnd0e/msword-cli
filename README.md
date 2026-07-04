@@ -237,6 +237,26 @@ The project exposes a high-level Python API built around `WordClient` and
 `Document`. It writes nothing to `stdout` and raises `WordAPIError` on
 failures, making errors straightforward to handle in larger scripts.
 
+Plugins can also extend a specific `WordClient` instance. Load them explicitly
+before using any plugin-provided methods:
+
+```python
+from msword_cli import WordClient
+
+with WordClient(visible=False, quit_on_exit=True) as word:
+    word.load_plugins(include="save-as")
+    output = word.save_as("report.pdf", save_format="pdf")
+    print(output)
+```
+
+`load_plugins()` accepts:
+
+- `plugin_dir`: one optional local plugin root path as a string;
+- `include`: `None`, one plugin name as a string, or a sequence of names.
+
+Library plugins inject methods onto that `WordClient` instance only. They do
+not modify the `WordClient` class globally.
+
 
 ### Example: batch processing folder conversion to PDF
 

@@ -1,10 +1,16 @@
 # Plugins
 
-`msword-cli` supports command plugins through the `msw.plugin` entry-point
-group.
+`msword-cli` supports plugins through the `msw.plugin` entry-point group.
 
 First-party plugins live under `plugins/*` in this repository.
-A plugin is a separate Python package that exposes one or more Click commands.
+A plugin is a separate Python package that can expose:
+
+- a Click command for the chained `msw` CLI;
+- one or more library methods that can be injected onto a `WordClient`
+  instance.
+
+Plugin-specific architectural constraints and invariants live in
+[`DEVNOTES.md`](DEVNOTES.md).
 
 
 ## Plugin package structure
@@ -14,11 +20,37 @@ entry point in the `msw.plugin` group:
 
 ```toml
 [project.entry-points."msw.plugin"]
-save-as = "msword_save_as_plugin:save_as_cmd"
+save-as = "save_as:plugin_manifest"
 ```
 
-The value uses `module:function` syntax.
-When the plugin is discovered, `msword-cli` loads that object and registers it as a CLI command.
+The value uses `module:attribute` syntax and should point at a plain dictionary
+named however you like. The project currently uses `plugin_manifest`.
+
+Minimal shape:
+
+```python
+plugin_manifest = {
+    "name": "save-as",
+    "command": save_as_cmd,
+    "client_methods": {
+        "save_as": save_as,
+    },
+}
+```
+
+Field semantics:
+
+- `name`: required unique plugin identifier.
+- `command`: optional `click.Command` for CLI registration.
+- `client_methods`: optional mapping of method names to callables.
+
+Each library callable should accept the active `WordClient` instance as its
+first argument:
+
+```python
+def save_as(client, path, save_format=None, ...):
+    ...
+```
 
 
 ## Discovery model
@@ -37,6 +69,18 @@ points.
 
 Without `--plugin-dir`, a plugin is discovered automatically only when it is
 installed into the active Python environment.
+
+CLI plugin commands are registered automatically when discovered.
+
+Library plugin methods are loaded explicitly per client:
+
+```python
+from msword_cli import WordClient
+
+with WordClient() as word:
+    word.load_plugins(include="save-as")
+    word.save_as("out.pdf", save_format="pdf")
+```
 
 
 ## Installed vs editable installs
@@ -129,9 +173,10 @@ still providing a deliberate local development override.
 
 ## Example
 
-`plugins/save-as` is a first-party plugin package that provides the `save-as` command.
-When the package is installed in the active environment, `msword-cli`
-discovers it through `msw.plugin` and registers the command automatically.
+`plugins/save-as` is a first-party plugin package that provides the `save-as`
+command and the `WordClient.save_as(...)` library method. When the package is
+installed in the active environment, `msword-cli` discovers it through
+`msw.plugin` and registers the command automatically.
 
 For local development without reinstalling, you can point the CLI at the
 repository plugin root directly:

@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.entry-points."msw.plugin"]
-save-as = "msword_save_as_plugin:save_as_cmd"
+save-as = "save_as:plugin_manifest"
 
 [tool.hatch.build.targets.wheel]
-include = ["msword_save_as_plugin.py"]
+include = ["save_as.py"]

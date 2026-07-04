@@ -2,9 +2,11 @@ from importlib import import_module
 from pathlib import Path
 from types import SimpleNamespace
 import sys
+from typing import Optional
 from unittest.mock import Mock
 
 import click
+import pytest
 
 try:
     import tomllib
@@ -29,6 +31,51 @@ def import_with_plugins(monkeypatch, entry_points_result):
     return import_module('msword_cli')
 
 
+def _plugin_module_name(command_name: str) -> str:
+    return command_name.replace("-", "_")
+
+
+def make_manifest_module(
+    package_name: str,
+    plugin_name: str,
+    method_name: Optional[str] = None,
+    command_name: Optional[str] = None,
+    command_body: str = "click.echo('local plugin')",
+    method_body: str = "return f'{client.__class__.__name__}:{value}'",
+) -> str:
+    lines = ["import click", ""]
+    if command_name is not None:
+        lines.extend(
+            [
+                f'@click.command("{command_name}")',
+                f'def {_plugin_module_name(command_name)}_cmd():',
+                f"    {command_body}",
+                "",
+            ]
+        )
+    if method_name is not None:
+        lines.extend(
+            [
+                f"def {method_name}(client, value='loaded'):",
+                f"    {method_body}",
+                "",
+            ]
+        )
+    lines.extend(
+        [
+            "plugin_manifest = {",
+            f'    "name": "{plugin_name}",',
+            f'    "command": {_plugin_module_name(command_name)}_cmd,' if command_name is not None else '    "command": None,',
+            '    "client_methods": {',
+            f'        "{method_name}": {method_name},' if method_name is not None else "",
+            "    },",
+            "}",
+            "",
+        ]
+    )
+    return "\n".join(line for line in lines if line != "")
+
+
 def write_local_plugin(plugin_root: Path, package_name: str, command_name: str, body: str = "click.echo('local plugin')") -> Path:
     plugin_dir = plugin_root / package_name
     plugin_dir.mkdir(parents=True)
@@ -40,22 +87,19 @@ def write_local_plugin(plugin_root: Path, package_name: str, command_name: str, 
                 'version = "0.1.0"',
                 '',
                 '[project.entry-points."msw.plugin"]',
-                f'{command_name} = "{package_name}:{command_name.replace("-", "_")}_cmd"',
+                f'{command_name} = "{package_name}:plugin_manifest"',
                 '',
             ]
         ),
         encoding='utf-8',
     )
     (plugin_dir / f'{package_name}.py').write_text(
-        '\n'.join(
-            [
-                'import click',
-                '',
-                f'@click.command("{command_name}")',
-                f'def {command_name.replace("-", "_")}_cmd():',
-                f'    {body}',
-                '',
-            ]
+        make_manifest_module(
+            package_name=package_name,
+            plugin_name=command_name,
+            method_name=None,
+            command_name=command_name,
+            command_body=body,
         ),
         encoding='utf-8',
     )
@@ -76,7 +120,7 @@ def test_plugin_command_is_registered(monkeypatch):
     def hello_plugin():
         click.echo('hello')
 
-    plugin = SimpleNamespace(load=Mock(return_value=hello_plugin))
+    plugin = SimpleNamespace(load=Mock(return_value={"name": "hello-plugin", "command": hello_plugin, "client_methods": {}}))
     entry_points_result = SimpleNamespace(select=Mock(return_value=[plugin]))
 
     msword_cli = import_with_plugins(monkeypatch, entry_points_result)
@@ -100,7 +144,7 @@ def test_plugin_can_register_save_as_command(monkeypatch, tmp_path):
     def plugin_save_as():
         click.echo('plugin save-as')
 
-    plugin = SimpleNamespace(load=Mock(return_value=plugin_save_as))
+    plugin = SimpleNamespace(load=Mock(return_value={"name": "save-as", "command": plugin_save_as, "client_methods": {}}))
     entry_points_result = SimpleNamespace(select=Mock(return_value=[plugin]))
 
     msword_cli = import_with_plugins(monkeypatch, entry_points_result)
@@ -128,7 +172,7 @@ def test_plugin_load_failure_does_not_block_later_plugins(monkeypatch):
         pass
 
     broken = SimpleNamespace(name='broken', load=Mock(side_effect=RuntimeError('bad plugin')))
-    working = SimpleNamespace(name='working', load=Mock(return_value=working_plugin))
+    working = SimpleNamespace(name='working', load=Mock(return_value={"name": "working", "command": working_plugin, "client_methods": {}}))
     entry_points_result = SimpleNamespace(select=Mock(return_value=[broken, working]))
 
     msword_cli = import_with_plugins(monkeypatch, entry_points_result)
@@ -154,7 +198,7 @@ def test_plugin_dir_overrides_installed_plugin(monkeypatch, tmp_path):
     def installed_plugin():
         click.echo('installed plugin')
 
-    plugin = SimpleNamespace(load=Mock(return_value=installed_plugin))
+    plugin = SimpleNamespace(load=Mock(return_value={"name": "save-as", "command": installed_plugin, "client_methods": {}}))
     entry_points_result = SimpleNamespace(select=Mock(return_value=[plugin]))
     msword_cli = import_with_plugins(monkeypatch, entry_points_result)
     write_local_plugin(tmp_path, 'local_save_as', 'save-as')
@@ -204,3 +248,126 @@ def test_script_mode_loads_repo_local_plugins_by_default(monkeypatch, tmp_path):
 
     assert result.exit_code == 0, result.output
     assert result.output == 'local plugin\n'
+
+
+def test_word_client_load_plugins_binds_client_methods(monkeypatch):
+    plugin = SimpleNamespace(
+        load=Mock(
+            return_value={
+                "name": "hello-plugin",
+                "command": None,
+                "client_methods": {
+                    "hello_plugin": lambda client, value="loaded": f"{client.__class__.__name__}:{value}"
+                },
+            }
+        )
+    )
+    entry_points_result = SimpleNamespace(select=Mock(return_value=[plugin]))
+    msword_cli = import_with_plugins(monkeypatch, entry_points_result)
+    client = msword_cli.WordClient(visible=False)
+
+    client.load_plugins(include="hello-plugin")
+
+    assert client.hello_plugin() == "WordClient:loaded"
+    assert client.hello_plugin("custom") == "WordClient:custom"
+
+
+def test_word_client_load_plugins_accepts_include_sequence(monkeypatch):
+    plugin = SimpleNamespace(
+        load=Mock(
+            return_value={
+                "name": "hello-plugin",
+                "command": None,
+                "client_methods": {"hello_plugin": lambda client: "loaded"},
+            }
+        )
+    )
+    entry_points_result = SimpleNamespace(select=Mock(return_value=[plugin]))
+    msword_cli = import_with_plugins(monkeypatch, entry_points_result)
+    client = msword_cli.WordClient(visible=False)
+
+    client.load_plugins(include=["hello-plugin"])
+
+    assert client.hello_plugin() == "loaded"
+
+
+def test_word_client_load_plugins_filters_out_plugins_not_in_include(monkeypatch):
+    plugin = SimpleNamespace(
+        load=Mock(
+            return_value={
+                "name": "hello-plugin",
+                "command": None,
+                "client_methods": {"hello_plugin": lambda client: "loaded"},
+            }
+        )
+    )
+    entry_points_result = SimpleNamespace(select=Mock(return_value=[plugin]))
+    msword_cli = import_with_plugins(monkeypatch, entry_points_result)
+    client = msword_cli.WordClient(visible=False)
+
+    client.load_plugins(include="other-plugin")
+
+    assert not hasattr(client, "hello_plugin")
+
+
+def test_word_client_load_plugins_rejects_method_name_conflicts(monkeypatch):
+    plugin = SimpleNamespace(
+        load=Mock(
+            return_value={
+                "name": "hello-plugin",
+                "command": None,
+                "client_methods": {"open": lambda client: "loaded"},
+            }
+        )
+    )
+    entry_points_result = SimpleNamespace(select=Mock(return_value=[plugin]))
+    msword_cli = import_with_plugins(monkeypatch, entry_points_result)
+    client = msword_cli.WordClient(visible=False)
+
+    with pytest.raises(msword_cli.WordAPIError, match='conflicts with existing WordClient attribute "open"'):
+        client.load_plugins(include="hello-plugin")
+
+
+def test_word_client_load_plugins_rejects_invalid_manifest(monkeypatch):
+    plugin = SimpleNamespace(load=Mock(return_value={"command": None, "client_methods": {}}))
+    entry_points_result = SimpleNamespace(select=Mock(return_value=[plugin]))
+    msword_cli = import_with_plugins(monkeypatch, entry_points_result)
+    client = msword_cli.WordClient(visible=False)
+
+    with pytest.raises(msword_cli.WordAPIError, match='Plugin manifest is missing a valid "name"'):
+        client.load_plugins()
+
+
+def test_word_client_load_plugins_loads_local_manifest_plugins(monkeypatch, tmp_path):
+    entry_points_result = SimpleNamespace(select=Mock(return_value=[]))
+    msword_cli = import_with_plugins(monkeypatch, entry_points_result)
+    client = msword_cli.WordClient(visible=False)
+    plugin_dir = tmp_path / "local_plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "pyproject.toml").write_text(
+        "\n".join(
+            [
+                "[project]",
+                'name = "local-plugin"',
+                'version = "0.1.0"',
+                "",
+                '[project.entry-points."msw.plugin"]',
+                'hello-plugin = "local_plugin:plugin_manifest"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (plugin_dir / "local_plugin.py").write_text(
+        make_manifest_module(
+            package_name="local_plugin",
+            plugin_name="hello-plugin",
+            method_name="hello_plugin",
+            command_name="hello-plugin",
+        ),
+        encoding="utf-8",
+    )
+
+    client.load_plugins(plugin_dir=str(tmp_path), include="hello-plugin")
+
+    assert client.hello_plugin() == "WordClient:loaded"

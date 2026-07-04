@@ -14,7 +14,8 @@ from importlib.metadata import entry_points
 from importlib.machinery import PathFinder
 from importlib.util import module_from_spec
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from types import MethodType
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import click
 from pywintypes import com_error
@@ -114,6 +115,14 @@ def _json_dump(value: Any) -> str:
 
 def _normalize_output_path(path: str) -> str:
     return str(Path(path).resolve())
+
+
+def _normalize_plugin_include(include: Optional[Any]) -> Optional[Tuple[str, ...]]:
+    if include is None:
+        return None
+    if isinstance(include, str):
+        return (include,)
+    return tuple(str(name) for name in include)
 
 
 def _normalize_summary_value(value: Any) -> Any:
@@ -273,6 +282,7 @@ class WordClient:
 
     def __init__(self, visible: bool = False, quit_on_exit: bool = False):
         self._quit_on_exit = quit_on_exit
+        self._loaded_library_plugins = set()
         self._word = None
         try:
             self._word = com.gencache.EnsureDispatch("Word.Application")
@@ -370,6 +380,26 @@ class WordClient:
     @property
     def document_count(self) -> int:
         return self.native.Documents.Count
+
+    def load_plugins(self, plugin_dir: Optional[str] = None, include: Optional[Any] = None) -> None:
+        include_names = _normalize_plugin_include(include)
+        manifests = _discover_plugin_manifests((plugin_dir,) if plugin_dir else ())
+        for manifest in manifests:
+            plugin_name = manifest["name"]
+            if include_names is not None and plugin_name not in include_names:
+                continue
+            if plugin_name in self._loaded_library_plugins:
+                continue
+            self._bind_plugin_methods(plugin_name, manifest.get("client_methods", {}))
+            self._loaded_library_plugins.add(plugin_name)
+
+    def _bind_plugin_methods(self, plugin_name: str, client_methods: Dict[str, Any]) -> None:
+        for method_name, func in client_methods.items():
+            if hasattr(self, method_name):
+                raise WordAPIError(
+                    f'Plugin "{plugin_name}" method "{method_name}" conflicts with existing WordClient attribute "{method_name}".'
+                )
+            setattr(self, method_name, MethodType(func, self))
 
     def open(self, path: str, visible: bool = True, read_only: bool = False, repair: bool = False) -> Document:
         try:
@@ -861,14 +891,16 @@ class SectionedHelpGroup(click.Group):
 
     def _load_installed_plugins(self) -> None:
         try:
-            eps = entry_points()
-            plugin_eps = eps.get("msw.plugin", []) if sys.version_info < (3, 10) else eps.select(group="msw.plugin")
+            plugin_eps = _installed_plugin_entry_points()
         except Exception as error:
             click.echo(f"Warning: Failed to discover plugins: {error}", err=True)
             return
         for plugin in plugin_eps:
             try:
-                self.add_command(plugin.load())
+                manifest = _validate_plugin_manifest(plugin.load())
+                command = manifest.get("command")
+                if command is not None:
+                    self.add_command(command)
             except Exception as error:
                 plugin_name = getattr(plugin, "name", "<unknown>")
                 click.echo(f"Warning: Failed to load plugin {plugin_name}: {error}", err=True)
@@ -964,7 +996,7 @@ def _read_local_plugin_entry_points(plugin_dir: Path) -> Dict[str, str]:
     return {str(name): str(target) for name, target in plugin_entries.items()}
 
 
-def _load_local_plugin_command(plugin_dir: Path, plugin_name: str, target: str) -> click.Command:
+def _load_module_attribute(plugin_dir: Path, target: str) -> Any:
     module_name, separator, attribute_name = target.partition(":")
     if not separator or not module_name or not attribute_name:
         raise ValueError(f'Invalid plugin target "{target}"')
@@ -975,12 +1007,71 @@ def _load_local_plugin_command(plugin_dir: Path, plugin_name: str, target: str) 
     module = module_from_spec(spec)
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
-    command = getattr(module, attribute_name)
+    return getattr(module, attribute_name)
+
+
+def _validate_plugin_manifest(manifest: Any) -> Dict[str, Any]:
+    if not isinstance(manifest, dict):
+        raise WordAPIError("Plugin manifest must be a dict.")
+    plugin_name = manifest.get("name")
+    if not isinstance(plugin_name, str) or not plugin_name:
+        raise WordAPIError('Plugin manifest is missing a valid "name".')
+    command = manifest.get("command")
+    if command is not None and not isinstance(command, click.Command):
+        raise WordAPIError(f'Plugin "{plugin_name}" has an invalid "command".')
+    client_methods = manifest.get("client_methods")
+    if client_methods is None:
+        client_methods = {}
+    if not isinstance(client_methods, dict):
+        raise WordAPIError(f'Plugin "{plugin_name}" has an invalid "client_methods" mapping.')
+    validated_methods = {}
+    for method_name, func in client_methods.items():
+        if not isinstance(method_name, str) or not method_name:
+            raise WordAPIError(f'Plugin "{plugin_name}" has an invalid client method name.')
+        if not callable(func):
+            raise WordAPIError(f'Plugin "{plugin_name}" method "{method_name}" is not callable.')
+        validated_methods[method_name] = func
+    return {
+        "name": plugin_name,
+        "command": command,
+        "client_methods": validated_methods,
+    }
+
+
+def _load_local_plugin_manifest(plugin_dir: Path, target: str) -> Dict[str, Any]:
+    return _validate_plugin_manifest(_load_module_attribute(plugin_dir, target))
+
+
+def _load_local_plugin_command(plugin_dir: Path, plugin_name: str, target: str) -> click.Command:
+    manifest = _load_local_plugin_manifest(plugin_dir, target)
+    command = manifest.get("command")
     if not isinstance(command, click.Command):
-        raise TypeError(f'Plugin target "{target}" did not resolve to a Click command')
+        raise TypeError(f'Plugin "{manifest["name"]}" did not provide a Click command')
     if command.name is None:
         command.name = plugin_name
     return command
+
+
+def _installed_plugin_entry_points() -> Iterable[Any]:
+    eps = entry_points()
+    return eps.get("msw.plugin", []) if sys.version_info < (3, 10) else eps.select(group="msw.plugin")
+
+
+def _discover_plugin_manifests(plugin_dirs: Sequence[str] = ()) -> List[Dict[str, Any]]:
+    manifests_by_name = {}
+    try:
+        plugin_eps = _installed_plugin_entry_points()
+    except Exception as error:
+        raise WordAPIError(f"Failed to discover plugins: {error}") from error
+    for plugin in plugin_eps:
+        manifest = _validate_plugin_manifest(plugin.load())
+        manifests_by_name[manifest["name"]] = manifest
+    for plugin_root in plugin_dirs:
+        for plugin_dir in _iter_local_plugin_dirs(plugin_root):
+            for _, target in _read_local_plugin_entry_points(plugin_dir).items():
+                manifest = _load_local_plugin_manifest(plugin_dir, target)
+                manifests_by_name[manifest["name"]] = manifest
+    return list(manifests_by_name.values())
 
 
 @click.group(chain=True, cls=SectionedHelpGroup)

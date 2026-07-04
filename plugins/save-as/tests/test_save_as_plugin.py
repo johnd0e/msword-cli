@@ -59,8 +59,8 @@ def runtime(monkeypatch):
 def plugin(runtime, monkeypatch):
     plugin_root = Path(__file__).resolve().parents[1]
     monkeypatch.syspath_prepend(str(plugin_root))
-    monkeypatch.delitem(sys.modules, "msword_save_as_plugin", raising=False)
-    return importlib.import_module("msword_save_as_plugin")
+    monkeypatch.delitem(sys.modules, "save_as", raising=False)
+    return importlib.import_module("save_as")
 
 
 def test_format_internals_are_private(plugin):
@@ -229,6 +229,12 @@ def test_save_as_command_is_exported(plugin):
     assert plugin.save_as_cmd.name == "save-as"
 
 
+def test_plugin_manifest_exposes_cli_and_library_entries(plugin):
+    assert plugin.plugin_manifest["name"] == "save-as"
+    assert plugin.plugin_manifest["command"] is plugin.save_as_cmd
+    assert plugin.plugin_manifest["client_methods"]["save_as"] is plugin.save_as
+
+
 def test_save_as_requires_path_for_save_operation(plugin, command_runtime):
     result = command_runtime.runner.invoke(plugin.save_as_cmd, [])
 
@@ -287,6 +293,18 @@ def test_plain_save_as_uses_active_document_save(plugin, command_runtime, tmp_pa
     assert result.exit_code == 0, result.output
     command_runtime.document.save.assert_called_once_with(path=expected)
     assert result.output == f'Saving active document as "{expected}"\n'
+
+
+def test_library_save_as_uses_active_document_save(plugin, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    document = SimpleNamespace(save=Mock(), native=SimpleNamespace(SaveAs2=Mock()))
+    client = SimpleNamespace(active_document=document)
+
+    result = plugin.save_as(client, "output.docx")
+
+    expected = str((tmp_path / "output.docx").resolve())
+    document.save.assert_called_once_with(path=expected)
+    assert result == expected
 
 
 @pytest.mark.parametrize(
@@ -376,6 +394,17 @@ def test_save_as_converts_word_api_error_to_click_exception(plugin, command_runt
 
     assert result.exit_code == 1
     assert "Error: save rejected" in result.output
+
+
+def test_library_save_as_converts_word_api_error(plugin, runtime, tmp_path):
+    document = SimpleNamespace(
+        save=Mock(side_effect=runtime.core.WordAPIError("save rejected")),
+        native=SimpleNamespace(SaveAs2=Mock()),
+    )
+    client = SimpleNamespace(active_document=document)
+
+    with pytest.raises(runtime.core.WordAPIError, match="save rejected"):
+        plugin.save_as(client, str(tmp_path / "output.docx"))
 
 
 def test_list_save_as_formats_groups_runtime_formats_and_converters(plugin):

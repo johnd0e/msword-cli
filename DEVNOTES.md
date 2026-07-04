@@ -108,3 +108,16 @@ In short:
 - prefer flags when the user is still performing one conceptual operation
 - prefer a separate command when the user intent, side effects, or result model
   are materially different
+
+
+## Plugin notes live under plugins/
+
+Plugin-specific architectural rules now live in `plugins/DEVNOTES.md`.
+
+Keep root `DEVNOTES.md` focused on core CLI/API constraints. Use the plugin
+notes file for:
+
+- plugin manifest rules;
+- `WordClient.load_plugins()` behavior;
+- CLI/library sharing patterns inside plugins;
+- plugin-specific laziness and validation requirements.

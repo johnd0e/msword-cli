@@ -260,6 +260,110 @@ def _save_as2(document: Any, path: Any, file_format: Any) -> str:
     return final_path
 
 
+def _resolve_save_as_constant(
+    save_format: str,
+    document: bool,
+    template: bool,
+    flat: bool,
+    strict: bool,
+    macro: bool,
+    filtered: bool,
+    line_breaks: bool,
+    dos: bool,
+    encoded: bool,
+    unicode: bool,
+) -> str:
+    aliased_constant = dict(_SAVE_AS_FORMAT_ALIASES).get(save_format)
+    if save_format == "html":
+        return _resolve_html_format(filtered)
+    if save_format == "xml":
+        return _resolve_xml_format(document, template, flat, macro, strict)
+    if save_format == "text":
+        return _resolve_text_format(line_breaks, dos, encoded, unicode)
+    if aliased_constant is not None and hasattr(C, aliased_constant):
+        return aliased_constant
+    if save_format.startswith("wdFormat") and hasattr(C, save_format):
+        return save_format
+    raise click.UsageError(f'Unknown or unsupported format "{save_format}".')
+
+
+def _prepare_save_as(
+    path: str,
+    save_format: Optional[str] = None,
+    document: bool = False,
+    template: bool = False,
+    flat: bool = False,
+    strict: bool = False,
+    macro: bool = False,
+    filtered: bool = False,
+    line_breaks: bool = False,
+    dos: bool = False,
+    encoded: bool = False,
+    unicode: bool = False,
+) -> Any:
+    final_path = str(Path(path).resolve())
+    html_options = filtered
+    xml_options = document or template or flat or strict or macro
+    text_options = line_breaks or dos or encoded or unicode
+    if html_options and save_format != "html":
+        raise click.UsageError("HTML options require --format html.")
+    if xml_options and save_format != "xml":
+        raise click.UsageError("XML options require --format xml.")
+    if text_options and save_format != "text":
+        raise click.UsageError("Text options require --format text.")
+    constant_name = None
+    if save_format is not None:
+        constant_name = _resolve_save_as_constant(
+            save_format=save_format,
+            document=document,
+            template=template,
+            flat=flat,
+            strict=strict,
+            macro=macro,
+            filtered=filtered,
+            line_breaks=line_breaks,
+            dos=dos,
+            encoded=encoded,
+            unicode=unicode,
+        )
+    return final_path, constant_name
+
+
+def save_as(
+    client: Any,
+    path: str,
+    save_format: Optional[str] = None,
+    document: bool = False,
+    template: bool = False,
+    flat: bool = False,
+    strict: bool = False,
+    macro: bool = False,
+    filtered: bool = False,
+    line_breaks: bool = False,
+    dos: bool = False,
+    encoded: bool = False,
+    unicode: bool = False,
+) -> str:
+    final_path, constant_name = _prepare_save_as(
+        path=path,
+        save_format=save_format,
+        document=document,
+        template=template,
+        flat=flat,
+        strict=strict,
+        macro=macro,
+        filtered=filtered,
+        line_breaks=line_breaks,
+        dos=dos,
+        encoded=encoded,
+        unicode=unicode,
+    )
+    if constant_name is None:
+        client.active_document.save(path=final_path)
+        return final_path
+    return _save_as2(client.active_document, final_path, getattr(C, constant_name))
+
+
 @click.command(
     "save-as",
     short_help="Save the active document to a new path.",
@@ -306,37 +410,48 @@ def save_as_cmd(
     if path is None:
         raise click.MissingParameter(param_hint="PATH", param_type="argument")
 
-    html_options = filtered
-    xml_options = document or template or flat or strict or macro
-    text_options = line_breaks or dos or encoded or unicode
-    if html_options and save_format != "html":
-        raise click.UsageError("HTML options require --format html.")
-    if xml_options and save_format != "xml":
-        raise click.UsageError("XML options require --format xml.")
-    if text_options and save_format != "text":
-        raise click.UsageError("Text options require --format text.")
+    final_path, constant_name = _prepare_save_as(
+        path=path,
+        save_format=save_format,
+        document=document,
+        template=template,
+        flat=flat,
+        strict=strict,
+        macro=macro,
+        filtered=filtered,
+        line_breaks=line_breaks,
+        dos=dos,
+        encoded=encoded,
+        unicode=unicode,
+    )
 
-    if save_format is None:
-        click.echo(f'Saving active document as "{path}"')
-        get_client().active_document.save(path=path)
+    if constant_name is None:
+        save_as(get_client(), final_path)
+        click.echo(f'Saving active document as "{final_path}"')
         return
 
-    aliased_constant = dict(_SAVE_AS_FORMAT_ALIASES).get(save_format)
-    if save_format == "html":
-        constant_name = _resolve_html_format(filtered)
-    elif save_format == "xml":
-        constant_name = _resolve_xml_format(document, template, flat, macro, strict)
-    elif save_format == "text":
-        constant_name = _resolve_text_format(line_breaks, dos, encoded, unicode)
-    elif aliased_constant is not None and hasattr(C, aliased_constant):
-        constant_name = aliased_constant
-    elif (
-        save_format.startswith("wdFormat")
-        and hasattr(C, save_format)
-    ):
-        constant_name = save_format
-    else:
-        raise click.UsageError(f'Unknown or unsupported format "{save_format}".')
-
-    final_path = _save_as2(get_client().active_document, path, getattr(C, constant_name))
+    final_path = save_as(
+        get_client(),
+        final_path,
+        save_format=save_format,
+        document=document,
+        template=template,
+        flat=flat,
+        strict=strict,
+        macro=macro,
+        filtered=filtered,
+        line_breaks=line_breaks,
+        dos=dos,
+        encoded=encoded,
+        unicode=unicode,
+    )
     click.echo(f'Saved as "{final_path}"')
+
+
+plugin_manifest = {
+    "name": "save-as",
+    "command": save_as_cmd,
+    "client_methods": {
+        "save_as": save_as,
+    },
+}

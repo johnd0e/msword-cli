@@ -11,12 +11,18 @@ tests, and docs aligned.
   be rediscovered during implementation.
 - `plugins/README.md` for plugin architecture, discovery, install modes, and
   plugin development workflow.
+- `plugins/DEVNOTES.md` for plugin-specific architectural constraints and
+  extension-model invariants.
 - `tests/README.md` for the canonical test workflow, including sandbox-specific
   execution details.
 
 `DEVNOTES.md` is a required project document, not optional background reading.
 If a change touches CLI shape, command growth, plugin ergonomics, or other
 design tradeoffs, review `DEVNOTES.md` before editing code.
+
+`plugins/DEVNOTES.md` is also required when a change touches plugin manifests,
+plugin discovery, `WordClient.load_plugins()`, plugin CLI wrappers, or other
+plugin-specific API/architecture decisions.
 
 ## Change Rules
 
@@ -25,9 +31,13 @@ design tradeoffs, review `DEVNOTES.md` before editing code.
 - Raise `WordAPIError` in the API layer and translate it at the CLI layer.
 - Keep plugin failures isolated so one broken entry point does not block later
   plugins.
+- Keep plugin library methods instance-scoped and preserve hard errors on
+  method-name conflicts.
+- In plugins, validate CLI arguments before calling `get_client()` or touching
+  COM-backed objects.
 - Keep documentation in sync with behavior changes. Update `README.md`,
-  `DEVNOTES.md`, `plugins/README.md`, and `tests/README.md` when the change
-  affects their scope.
+  `DEVNOTES.md`, `plugins/README.md`, `plugins/DEVNOTES.md`, and
+  `tests/README.md` when the change affects their scope.
 
 ## File Boundaries
 
@@ -35,9 +45,11 @@ Keep information clearly separated by file responsibility.
 
 - `README.md` is for product and developer usage.
 - `DEVNOTES.md` is for architectural constraints, design rationale, and
-  implementation tradeoffs.
+  implementation tradeoffs for the core CLI/API.
 - `plugins/README.md` is for plugin-specific behavior, setup, discovery, and
   development procedure.
+- `plugins/DEVNOTES.md` is for plugin-specific architectural constraints,
+  manifest rules, and extension-model invariants.
 - `tests/README.md` is for test policy and execution procedure, including
   sandbox-specific guidance.
 - `AGENTS.md` is for agent workflow rules and pointers to the canonical
