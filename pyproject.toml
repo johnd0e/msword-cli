@@ -31,6 +31,7 @@ classifiers = [
 ]
 dependencies = [
   "click>=8.0",
+  "msword-cli-compare-merge~=0.4.0",
   "msword-cli-save-as~=0.4.0",
   "tomli>=1.1; python_version < '3.11'",
   "pywin32>=306"
@@ -51,6 +52,7 @@ dev = [
 ]
 
 [tool.uv.sources]
+msword-cli-compare-merge = { workspace = true }
 msword-cli-save-as = { workspace = true }
 
 [tool.uv.workspace]

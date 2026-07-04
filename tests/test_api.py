@@ -10,53 +10,6 @@ from click.testing import CliRunner
 from tests.conftest import FakeCollection, FakeComment, FakeCommentsCollection, FakeComDocument, FakeFieldsCollection, FakePropertyCollection, FakeRevisionsCollection, FakeWordApp
 
 
-def test_merge_command_passes_new_options(msword_cli, monkeypatch):
-    runner = CliRunner()
-    client = Mock()
-    result_doc = Mock()
-    result_doc.name = "merged.docx"
-    client.merge.return_value = result_doc
-    monkeypatch.setattr(msword_cli, "get_client", lambda: client)
-
-    with runner.isolated_filesystem():
-        Path("original.docx").touch()
-        Path("revised.docx").touch()
-        original = str(Path("original.docx").resolve())
-        revised = str(Path("revised.docx").resolve())
-        result = runner.invoke(
-            msword_cli.cli,
-            [
-                "merge",
-                "--to-original",
-                "--char-level",
-                "--no-comments",
-                "--ignore-warnings",
-                "original.docx",
-                "revised.docx",
-            ],
-        )
-
-    assert result.exit_code == 0
-    client.merge.assert_called_once_with(
-        original=original,
-        revised=revised,
-        destination=msword_cli.C.wdMergeDestinationOriginalDocument,
-        granularity=msword_cli.C.wdGranularityCharLevel,
-        formatting=True,
-        case_changes=True,
-        whitespace=True,
-        tables=True,
-        headers=True,
-        footnotes=True,
-        textboxes=True,
-        fields=True,
-        comments=False,
-        moves=True,
-        author=None,
-        ignore_warnings=True,
-    )
-
-
 def test_print_version_does_not_initialize_client(msword_cli, monkeypatch):
     runner = CliRunner()
     get_client = Mock(side_effect=AssertionError("client should not be initialized"))
@@ -165,48 +118,6 @@ def test_document_close_force_uses_no_save_changes(msword_cli):
     com_doc.Close.assert_called_once_with(msword_cli.C.wdDoNotSaveChanges)
 
 
-def test_word_client_compare_uses_word_username_by_default(msword_cli, monkeypatch):
-    original_doc = Mock()
-    revised_doc = Mock()
-    result_doc = Mock()
-    app = FakeWordApp()
-    app.Documents.Open = Mock(side_effect=[original_doc, revised_doc])
-    app.CompareDocuments.return_value = result_doc
-    monkeypatch.setattr(msword_cli.com.gencache, "EnsureDispatch", Mock(return_value=app))
-
-    with CliRunner().isolated_filesystem():
-        Path("a.docx").touch()
-        Path("b.docx").touch()
-        original = str(Path("a.docx").resolve())
-        revised = str(Path("b.docx").resolve())
-        client = msword_cli.WordClient(visible=False)
-        result = client.compare(original, revised)
-
-    assert isinstance(result, msword_cli.Document)
-    app.Documents.Open.assert_any_call(FileName=original, Visible=False)
-    app.Documents.Open.assert_any_call(FileName=revised, Visible=False)
-    app.CompareDocuments.assert_called_once_with(
-        OriginalDocument=original_doc,
-        RevisedDocument=revised_doc,
-        Destination=msword_cli.C.wdCompareDestinationNew,
-        Granularity=msword_cli.C.wdGranularityWordLevel,
-        CompareFormatting=True,
-        CompareCaseChanges=True,
-        CompareWhitespace=True,
-        CompareTables=True,
-        CompareHeaders=True,
-        CompareFootnotes=True,
-        CompareTextboxes=True,
-        CompareFields=True,
-        CompareComments=True,
-        CompareMoves=True,
-        RevisedAuthor=app.UserName,
-        IgnoreAllComparisonWarnings=False,
-    )
-    original_doc.Close.assert_called_once_with(msword_cli.C.wdDoNotSaveChanges)
-    revised_doc.Close.assert_called_once_with(msword_cli.C.wdDoNotSaveChanges)
-
-
 def test_word_client_open_passes_readonly_and_repair(msword_cli, monkeypatch):
     com_doc = FakeComDocument("report.docx")
     app = FakeWordApp([com_doc])
@@ -232,55 +143,6 @@ def test_word_client_visible_false_does_not_hide_existing_word(msword_cli, monke
     msword_cli.WordClient(visible=False)
 
     assert app.Visible is True
-
-
-def test_word_client_compare_accepts_explicit_author_and_flags(msword_cli, monkeypatch):
-    original_doc = Mock()
-    revised_doc = Mock()
-    result_doc = Mock()
-    app = FakeWordApp()
-    app.Documents.Open = Mock(side_effect=[original_doc, revised_doc])
-    app.CompareDocuments.return_value = result_doc
-    monkeypatch.setattr(msword_cli.com.gencache, "EnsureDispatch", Mock(return_value=app))
-
-    with CliRunner().isolated_filesystem():
-        Path("a.docx").touch()
-        Path("b.docx").touch()
-        original = str(Path("a.docx").resolve())
-        revised = str(Path("b.docx").resolve())
-        client = msword_cli.WordClient(visible=False)
-        client.compare(
-            original,
-            revised,
-            destination=msword_cli.C.wdCompareDestinationRevised,
-            granularity=msword_cli.C.wdGranularityCharLevel,
-            formatting=False,
-            comments=False,
-            moves=False,
-            author="Tester",
-            ignore_warnings=True,
-        )
-
-    app.CompareDocuments.assert_called_once_with(
-        OriginalDocument=original_doc,
-        RevisedDocument=revised_doc,
-        Destination=msword_cli.C.wdCompareDestinationRevised,
-        Granularity=msword_cli.C.wdGranularityCharLevel,
-        CompareFormatting=False,
-        CompareCaseChanges=True,
-        CompareWhitespace=True,
-        CompareTables=True,
-        CompareHeaders=True,
-        CompareFootnotes=True,
-        CompareTextboxes=True,
-        CompareFields=True,
-        CompareComments=False,
-        CompareMoves=False,
-        RevisedAuthor="Tester",
-        IgnoreAllComparisonWarnings=True,
-    )
-    original_doc.Close.assert_called_once_with(msword_cli.C.wdDoNotSaveChanges)
-    revised_doc.Close.assert_not_called()
 
 
 def test_word_client_context_manager_quits_on_exit(msword_cli, monkeypatch):
@@ -327,6 +189,23 @@ def test_get_client_replaces_closed_client(msword_cli, monkeypatch):
     word_client_ctor.assert_called_once_with(visible=False)
 
 
+def test_word_client_does_not_expose_compare_or_merge_in_core(msword_cli):
+    assert not hasattr(msword_cli.WordClient, "compare")
+    assert not hasattr(msword_cli.WordClient, "merge")
+
+
+def test_word_client_load_plugins_injects_compare_merge_methods(msword_cli, monkeypatch):
+    plugin_dir = Path(msword_cli.__file__).with_name("plugins") / "compare-merge"
+    client = msword_cli.WordClient.__new__(msword_cli.WordClient)
+    client._loaded_library_plugins = set()
+    monkeypatch.setattr(msword_cli, "_installed_plugin_entry_points", lambda: [])
+
+    msword_cli.WordClient.load_plugins(client, plugin_dir=str(plugin_dir), include="compare-merge")
+
+    assert callable(getattr(client, "compare"))
+    assert callable(getattr(client, "merge"))
+
+
 def test_unknown_constant_does_not_start_word(msword_cli):
     msword_cli.com.gencache.EnsureDispatch.reset_mock()
 
@@ -334,27 +213,6 @@ def test_unknown_constant_does_not_start_word(msword_cli):
         msword_cli._resolve_constant("wdDoesNotExist")
 
     msword_cli.com.gencache.EnsureDispatch.assert_not_called()
-
-
-def test_word_client_merge_keeps_original_destination_open(msword_cli, monkeypatch):
-    original_doc = Mock()
-    revised_doc = Mock()
-    app = FakeWordApp()
-    app.Documents.Open = Mock(side_effect=[original_doc, revised_doc])
-    app.MergeDocuments.return_value = original_doc
-    monkeypatch.setattr(msword_cli.com.gencache, "EnsureDispatch", Mock(return_value=app))
-
-    client = msword_cli.WordClient(visible=False)
-    result = client.merge(
-        "original.docx",
-        "revised.docx",
-        destination=msword_cli.C.wdMergeDestinationOriginalDocument,
-    )
-
-    assert result._doc is original_doc
-    original_doc.Close.assert_not_called()
-    revised_doc.Close.assert_called_once_with(msword_cli.C.wdDoNotSaveChanges)
-
 
 
 def test_document_save_copy_normalizes_path(msword_cli):

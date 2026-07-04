@@ -93,9 +93,9 @@ uv run msword_cli.py --help
 Unless otherwise specified, all subcommands operate on the currently active
 document.
 
-First-party plugins are installed by default with `msword-cli`. The `save-as`
-command is provided by that default plugin, while `export` remains the
-PDF/XPS-specific `ExportAsFixedFormat` route in the core.
+First-party plugins are installed by default with `msword-cli`. The `save-as`,
+`compare`, and `merge` commands are provided by bundled plugins, while
+`export` remains the PDF/XPS-specific `ExportAsFixedFormat` route in the core.
 
 
 ### Command groups
@@ -106,6 +106,9 @@ PDF/XPS-specific `ExportAsFixedFormat` route in the core.
 | Content | `find`, `replace`, `print`, `export`, `update-fields` |
 | Review | `track-changes`, `accept-revisions`, `reject-revisions`, `list-comments`, `export-comments`, `delete-comments` |
 | Document Data | `summary`, `statistics`, `list-properties`, `get-property`, `set-property`, `delete-property` |
+
+Bundled plugin commands appear in the CLI automatically and are listed in the
+`Plugins` section of `msw --help`.
 
 For a complete list of options for any subcommand, run:
 
@@ -171,56 +174,6 @@ Note: `.` (a single dot) refers to the current working directory. The export
 command will resolve the output filename from the active document's name.
 
 
-### Comparing documents
-
-The `compare` command wraps Word's [`Application.CompareDocuments`][word-compare-docs]
-and produces a new document with all differences shown as tracked changes:
-
-```bash
-msw compare original.docx revised.docx
-```
-
-By default the result opens as a new document. Use `--to-original` or
-`--to-revised` to put the diff inline:
-
-```bash
-msw compare original.docx revised.docx --to-revised
-```
-
-Comparison granularity is word-level by default; use `--char-level` for
-character-level diff. Individual difference types can be excluded:
-
-```bash
-msw compare original.docx revised.docx --char-level --no-formatting --no-whitespace
-```
-
-Available `--no-*` flags: `--no-formatting`, `--no-case-changes`,
-`--no-whitespace`, `--no-tables`, `--no-headers`, `--no-footnotes`,
-`--no-textboxes`, `--no-fields`, `--no-comments`, `--no-moves`.
-
-Use `--author <name>` to override the author attributed to tracked changes
-(defaults to the Word username). Use `--ignore-warnings` to suppress any
-Word comparison warning dialogs.
-
-[word-compare-docs]: https://learn.microsoft.com/en-us/office/vba/api/word.application.comparedocuments
-
-
-### Merging documents
-
-The `merge` command wraps [`Application.MergeDocuments`][word-merge-docs]
-and combines the tracked changes from both documents:
-
-```bash
-msw merge original.docx revised.docx
-```
-
-It accepts the same `--no-*`, `--char-level`, `--author`, and
-`--ignore-warnings` options as `compare`. The destination flags are
-`--to-original` and `--to-revised` (default: new document).
-
-[word-merge-docs]: https://learn.microsoft.com/en-us/dotnet/api/microsoft.office.interop.word._application.mergedocuments
-
-
 ## Plugins
 
 MSWord-CLI supports third-party plugins. Plugins add Click commands that can be
@@ -229,6 +182,10 @@ used in the same chain as built-in commands, and first-party plugins live under
 
 Plugin packaging, discovery, install modes, precedence rules, and development
 guidance are documented in [plugins/README.md](plugins/README.md).
+
+Bundled plugin command docs:
+
+- [`compare-merge`](plugins/compare-merge/README.md)
 
 
 ## Library usage
@@ -286,18 +243,6 @@ def convert_folder_to_pdf(folder_path: str) -> None:
 
 if __name__ == "__main__":
     convert_folder_to_pdf(r"C:\Users\User\Documents")
-```
-
-
-### Example: compare two documents via API
-
-```python
-from msword_cli import WordClient
-
-with WordClient(visible=True, quit_on_exit=True) as word:
-    diff = word.compare("original.docx", "revised.docx")
-    print(f"Diff document: {diff.name}")
-    diff.save("diff.docx", force=True)
 ```
 
 

@@ -430,44 +430,16 @@ def test_activate_bad_index(msword_cli, monkeypatch):
     assert "Index 6 out of range." in result.output
 
 
-def test_compare_command_passes_new_options(msword_cli, monkeypatch):
+def test_help_lists_compare_and_merge_as_plugins(msword_cli, monkeypatch):
     runner = CliRunner()
-    client = FakeClient()
-    result_doc = Mock()
-    result_doc.name = "diff.docx"
-    client.compare.return_value = result_doc
-    monkeypatch.setattr(msword_cli, "get_client", lambda: client)
+    monkeypatch.setattr(msword_cli, "_installed_plugin_entry_points", lambda: [])
 
-    with runner.isolated_filesystem():
-        Path("original.docx").touch()
-        Path("revised.docx").touch()
-        original = str(Path("original.docx").resolve())
-        revised = str(Path("revised.docx").resolve())
-        result = invoke(
-            runner,
-            msword_cli,
-            ["compare", "--to-revised", "--char-level", "--no-formatting", "--author", "Tester", "original.docx", "revised.docx"],
-        )
+    result = invoke(runner, msword_cli, ["--help"])
 
     assert result.exit_code == 0
-    client.compare.assert_called_once_with(
-        original=original,
-        revised=revised,
-        destination=msword_cli.C.wdCompareDestinationRevised,
-        granularity=msword_cli.C.wdGranularityCharLevel,
-        formatting=False,
-        case_changes=True,
-        whitespace=True,
-        tables=True,
-        headers=True,
-        footnotes=True,
-        textboxes=True,
-        fields=True,
-        comments=True,
-        moves=True,
-        author="Tester",
-        ignore_warnings=False,
-    )
+    assert "Plugins:" in result.output
+    assert "compare" in result.output
+    assert "merge" in result.output
 
 
 def test_print_rejects_non_positive_copies(msword_cli, monkeypatch):

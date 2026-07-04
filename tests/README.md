@@ -3,8 +3,9 @@
 What is covered:
 - CLI command behavior through the Click command group in `msword_cli.cli`
 - High-level API behavior for `WordClient` and `Document`
-- Compare/merge flows and helper behavior such as lazy client init, public `native` COM escape hatches,
-  error conversion, and the newer review/content/property commands
+- Bundled plugin behavior such as `save-as` and `compare-merge`, plus lazy
+  client init, public `native` COM escape hatches, error conversion, and the
+  newer review/content/property commands
   (`find`, `replace`, comments, revisions, fields, properties, summary, statistics)
 
 Design notes:

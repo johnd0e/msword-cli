@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "msword-cli-compare-merge"
+version = "0.4.0"
+requires-python = ">=3.8"
+dependencies = [
+  "click>=8.0",
+  "pywin32>=306"
+]
+
+[project.entry-points."msw.plugin"]
+compare-merge = "compare_merge:plugin_manifest"
+
+[tool.hatch.build.targets.wheel]
+include = ["compare_merge.py"]

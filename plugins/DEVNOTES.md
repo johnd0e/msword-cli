@@ -75,3 +75,29 @@ Why this matters:
 
 The `save-as` plugin now follows this rule by resolving and validating format
 options before it requests the active client.
+
+
+## Core vs bundled first-party plugins
+
+Bundled first-party plugins are still part of the product, but they do not
+belong in core automatically just because the underlying Word feature is
+"native."
+
+Prefer a bundled first-party plugin when one or more of these are true:
+
+- the workflow is specialized rather than part of the default single-document
+  lifecycle;
+- the plugin needs a noticeable semantic shell around a direct COM call
+  (validation, policy, option mapping, special result handling);
+- the operation has an unusual input/output model such as multiple input files
+  or a result document with custom cleanup rules.
+
+Keep these rules:
+
+- core helpers are part of the product contract, so the bar for adding them is
+  high;
+- do not promote plugin-local helpers into core preemptively;
+- repeated use or a strong, stable architectural signal is required before a
+  plugin helper becomes a core helper;
+- trivially short local code is not a reason to create a shared abstraction by
+  itself.

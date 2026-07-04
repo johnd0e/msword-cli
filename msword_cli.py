@@ -429,126 +429,6 @@ class WordClient:
         except com_error as error:
             raise WordAPIError(f"Failed to create new document: {_com_error_message(error)}") from error
 
-    def compare(
-        self,
-        original: str,
-        revised: str,
-        destination: Any = "wdCompareDestinationNew",
-        granularity: Any = "wdGranularityWordLevel",
-        formatting: bool = True,
-        case_changes: bool = True,
-        whitespace: bool = True,
-        tables: bool = True,
-        headers: bool = True,
-        footnotes: bool = True,
-        textboxes: bool = True,
-        fields: bool = True,
-        comments: bool = True,
-        moves: bool = True,
-        author: Optional[str] = None,
-        ignore_warnings: bool = False,
-    ) -> Document:
-        orig_doc = None
-        rev_doc = None
-        result_doc = None
-        try:
-            word = self.native
-            orig_doc = word.Documents.Open(FileName=_normalize_output_path(original), Visible=False)
-            rev_doc = word.Documents.Open(FileName=_normalize_output_path(revised), Visible=False)
-            resolved_destination = _resolve_constant(destination)
-            result = word.CompareDocuments(
-                OriginalDocument=orig_doc,
-                RevisedDocument=rev_doc,
-                Destination=resolved_destination,
-                Granularity=_resolve_constant(granularity),
-                CompareFormatting=formatting,
-                CompareCaseChanges=case_changes,
-                CompareWhitespace=whitespace,
-                CompareTables=tables,
-                CompareHeaders=headers,
-                CompareFootnotes=footnotes,
-                CompareTextboxes=textboxes,
-                CompareFields=fields,
-                CompareComments=comments,
-                CompareMoves=moves,
-                RevisedAuthor=author or word.UserName,
-                IgnoreAllComparisonWarnings=ignore_warnings,
-            )
-            if resolved_destination == _resolve_constant("wdCompareDestinationOriginal"):
-                result_doc = orig_doc
-            elif resolved_destination == _resolve_constant("wdCompareDestinationRevised"):
-                result_doc = rev_doc
-            return Document(result)
-        except com_error as error:
-            raise WordAPIError(f"Compare failed: {_com_error_message(error)}") from error
-        finally:
-            for temp_doc in (orig_doc, rev_doc):
-                if temp_doc is not None and temp_doc is not result_doc:
-                    try:
-                        temp_doc.Close(_resolve_constant("wdDoNotSaveChanges"))
-                    except Exception:
-                        pass
-
-    def merge(
-        self,
-        original: str,
-        revised: str,
-        destination: Any = "wdMergeDestinationNewDocument",
-        granularity: Any = "wdGranularityWordLevel",
-        formatting: bool = True,
-        case_changes: bool = True,
-        whitespace: bool = True,
-        tables: bool = True,
-        headers: bool = True,
-        footnotes: bool = True,
-        textboxes: bool = True,
-        fields: bool = True,
-        comments: bool = True,
-        moves: bool = True,
-        author: Optional[str] = None,
-        ignore_warnings: bool = False,
-    ) -> Document:
-        orig_doc = None
-        rev_doc = None
-        result_doc = None
-        try:
-            word = self.native
-            orig_doc = word.Documents.Open(FileName=_normalize_output_path(original), Visible=False)
-            rev_doc = word.Documents.Open(FileName=_normalize_output_path(revised), Visible=False)
-            resolved_destination = _resolve_constant(destination)
-            result = word.MergeDocuments(
-                OriginalDocument=orig_doc,
-                RevisedDocument=rev_doc,
-                Destination=resolved_destination,
-                Granularity=_resolve_constant(granularity),
-                CompareFormatting=formatting,
-                CompareCaseChanges=case_changes,
-                CompareWhitespace=whitespace,
-                CompareTables=tables,
-                CompareHeaders=headers,
-                CompareFootnotes=footnotes,
-                CompareTextboxes=textboxes,
-                CompareFields=fields,
-                CompareComments=comments,
-                CompareMoves=moves,
-                RevisedAuthor=author or word.UserName,
-                IgnoreAllComparisonWarnings=ignore_warnings,
-            )
-            if resolved_destination == _resolve_constant("wdMergeDestinationOriginalDocument"):
-                result_doc = orig_doc
-            elif resolved_destination == _resolve_constant("wdMergeDestinationRevisedDocument"):
-                result_doc = rev_doc
-            return Document(result)
-        except com_error as error:
-            raise WordAPIError(f"Merge failed: {_com_error_message(error)}") from error
-        finally:
-            for temp_doc in (orig_doc, rev_doc):
-                if temp_doc is not None and temp_doc is not result_doc:
-                    try:
-                        temp_doc.Close(_resolve_constant("wdDoNotSaveChanges"))
-                    except Exception:
-                        pass
-
     def set_track_changes(self, enabled: bool) -> bool:
         try:
             document = self.active_document.native
@@ -855,7 +735,7 @@ def _render_documents(client: WordClient) -> str:
 
 class SectionedHelpGroup(click.Group):
     COMMAND_SECTIONS = {
-        "Documents": ["open", "new", "save", "save-as", "save-copy", "close", "activate", "list-documents", "compare", "merge"],
+        "Documents": ["open", "new", "save", "save-as", "save-copy", "close", "activate", "list-documents"],
         "Content": ["find", "replace", "update-fields", "print", "export"],
         "Review": ["track-changes", "accept-revisions", "reject-revisions", "list-comments", "export-comments", "delete-comments"],
         "Document Data": ["summary", "statistics", "list-properties", "get-property", "set-property", "delete-property"],
@@ -898,8 +778,7 @@ class SectionedHelpGroup(click.Group):
         for plugin in plugin_eps:
             try:
                 manifest = _validate_plugin_manifest(plugin.load())
-                command = manifest.get("command")
-                if command is not None:
+                for command in _manifest_commands(manifest, fallback_name=getattr(plugin, "name", None)):
                     self.add_command(command)
             except Exception as error:
                 plugin_name = getattr(plugin, "name", "<unknown>")
@@ -910,7 +789,8 @@ class SectionedHelpGroup(click.Group):
             for plugin_dir in _iter_local_plugin_dirs(plugin_root):
                 try:
                     for name, target in _read_local_plugin_entry_points(plugin_dir).items():
-                        self.add_command(_load_local_plugin_command(plugin_dir, name, target))
+                        for command in _load_local_plugin_commands(plugin_dir, name, target):
+                            self.add_command(command)
                 except Exception as error:
                     click.echo(f'Warning: Failed to load local plugin {plugin_dir}: {error}', err=True)
 
@@ -935,29 +815,6 @@ class SectionedHelpGroup(click.Group):
             plugin_rows = [(name, command.get_short_help_str()) for name, command in sorted(remaining.items(), key=lambda item: item[0])]
             with formatter.section("Plugins"):
                 formatter.write_dl(plugin_rows)
-
-
-_COMPARE_OPTIONS = [
-    click.option("--char-level", "granularity", flag_value="wdGranularityCharLevel", help="Compare at character level (default: word level)."),
-    click.option("--no-formatting", "formatting", is_flag=True, default=False, help="Ignore formatting differences."),
-    click.option("--no-case-changes", "case_changes", is_flag=True, default=False, help="Ignore case change differences."),
-    click.option("--no-whitespace", "whitespace", is_flag=True, default=False, help="Ignore whitespace differences."),
-    click.option("--no-tables", "tables", is_flag=True, default=False, help="Ignore table differences."),
-    click.option("--no-headers", "headers", is_flag=True, default=False, help="Ignore header/footer differences."),
-    click.option("--no-footnotes", "footnotes", is_flag=True, default=False, help="Ignore footnote differences."),
-    click.option("--no-textboxes", "textboxes", is_flag=True, default=False, help="Ignore text box differences."),
-    click.option("--no-fields", "fields", is_flag=True, default=False, help="Ignore field differences."),
-    click.option("--no-comments", "comments", is_flag=True, default=False, help="Ignore comment differences."),
-    click.option("--no-moves", "moves", is_flag=True, default=False, help="Ignore move differences."),
-    click.option("--author", type=str, default=None, help="Author name for tracked changes (defaults to Word username)."),
-    click.option("--ignore-warnings", is_flag=True, default=False, help="Suppress all comparison warning dialogs."),
-]
-
-
-def add_compare_options(func):
-    for option in reversed(_COMPARE_OPTIONS):
-        func = option(func)
-    return func
 
 
 def _configure_plugin_dirs(ctx: click.Context, param: click.Parameter, value: Tuple[str, ...]) -> Tuple[str, ...]:
@@ -1019,6 +876,18 @@ def _validate_plugin_manifest(manifest: Any) -> Dict[str, Any]:
     command = manifest.get("command")
     if command is not None and not isinstance(command, click.Command):
         raise WordAPIError(f'Plugin "{plugin_name}" has an invalid "command".')
+    commands = manifest.get("commands")
+    if commands is None:
+        commands = {}
+    if not isinstance(commands, dict):
+        raise WordAPIError(f'Plugin "{plugin_name}" has an invalid "commands" mapping.')
+    validated_commands = {}
+    for command_name, extra_command in commands.items():
+        if not isinstance(command_name, str) or not command_name:
+            raise WordAPIError(f'Plugin "{plugin_name}" has an invalid command name.')
+        if not isinstance(extra_command, click.Command):
+            raise WordAPIError(f'Plugin "{plugin_name}" command "{command_name}" is not a Click command.')
+        validated_commands[command_name] = extra_command
     client_methods = manifest.get("client_methods")
     if client_methods is None:
         client_methods = {}
@@ -1034,6 +903,7 @@ def _validate_plugin_manifest(manifest: Any) -> Dict[str, Any]:
     return {
         "name": plugin_name,
         "command": command,
+        "commands": validated_commands,
         "client_methods": validated_methods,
     }
 
@@ -1042,14 +912,26 @@ def _load_local_plugin_manifest(plugin_dir: Path, target: str) -> Dict[str, Any]
     return _validate_plugin_manifest(_load_module_attribute(plugin_dir, target))
 
 
-def _load_local_plugin_command(plugin_dir: Path, plugin_name: str, target: str) -> click.Command:
-    manifest = _load_local_plugin_manifest(plugin_dir, target)
+def _manifest_commands(manifest: Dict[str, Any], fallback_name: Optional[str] = None) -> List[click.Command]:
+    commands = []
     command = manifest.get("command")
-    if not isinstance(command, click.Command):
-        raise TypeError(f'Plugin "{manifest["name"]}" did not provide a Click command')
-    if command.name is None:
-        command.name = plugin_name
-    return command
+    if isinstance(command, click.Command):
+        if command.name is None and fallback_name is not None:
+            command.name = fallback_name
+        commands.append(command)
+    for command_name, extra_command in manifest.get("commands", {}).items():
+        if extra_command.name is None:
+            extra_command.name = command_name
+        commands.append(extra_command)
+    return commands
+
+
+def _load_local_plugin_commands(plugin_dir: Path, plugin_name: str, target: str) -> List[click.Command]:
+    manifest = _load_local_plugin_manifest(plugin_dir, target)
+    commands = _manifest_commands(manifest, fallback_name=plugin_name)
+    if not commands:
+        raise TypeError(f'Plugin "{manifest["name"]}" did not provide any Click commands')
+    return commands
 
 
 def _installed_plugin_entry_points() -> Iterable[Any]:
@@ -1233,32 +1115,6 @@ def activate_cmd(index: int) -> None:
 def list_documents_cmd() -> None:
     click.echo(_render_documents(get_client()))
 
-
-
-@cli.command("compare", short_help="Compare two documents.", help="Compare ORIGINAL and REVISED documents, showing differences as tracked changes.")
-@click.argument("original", type=click.Path(exists=True, resolve_path=True))
-@click.argument("revised", type=click.Path(exists=True, resolve_path=True))
-@click.option("--to-original", "destination", flag_value="wdCompareDestinationOriginal", help="Put diff into the original document.")
-@click.option("--to-revised", "destination", flag_value="wdCompareDestinationRevised", help="Put diff into the revised document.")
-@add_compare_options
-@handle_api_error
-def compare_cmd(original: str, revised: str, destination: Any, granularity: Any, formatting: bool, case_changes: bool, whitespace: bool, tables: bool, headers: bool, footnotes: bool, textboxes: bool, fields: bool, comments: bool, moves: bool, author: Optional[str], ignore_warnings: bool) -> None:
-    click.echo(f'Comparing "{original}" with "{revised}"')
-    result = get_client().compare(original=original, revised=revised, destination=_resolve_constant(destination or "wdCompareDestinationNew"), granularity=_resolve_constant(granularity or "wdGranularityWordLevel"), formatting=not formatting, case_changes=not case_changes, whitespace=not whitespace, tables=not tables, headers=not headers, footnotes=not footnotes, textboxes=not textboxes, fields=not fields, comments=not comments, moves=not moves, author=author, ignore_warnings=ignore_warnings)
-    click.echo(f'Result document: "{result.name}"')
-
-
-@cli.command("merge", short_help="Merge two documents.", help="Merge ORIGINAL and REVISED documents, combining their tracked changes.")
-@click.argument("original", type=click.Path(exists=True, resolve_path=True))
-@click.argument("revised", type=click.Path(exists=True, resolve_path=True))
-@click.option("--to-original", "destination", flag_value="wdMergeDestinationOriginalDocument", help="Merge result into the original document.")
-@click.option("--to-revised", "destination", flag_value="wdMergeDestinationRevisedDocument", help="Merge result into the revised document.")
-@add_compare_options
-@handle_api_error
-def merge_cmd(original: str, revised: str, destination: Any, granularity: Any, formatting: bool, case_changes: bool, whitespace: bool, tables: bool, headers: bool, footnotes: bool, textboxes: bool, fields: bool, comments: bool, moves: bool, author: Optional[str], ignore_warnings: bool) -> None:
-    click.echo(f'Merging "{original}" with "{revised}"')
-    result = get_client().merge(original=original, revised=revised, destination=_resolve_constant(destination or "wdMergeDestinationNewDocument"), granularity=_resolve_constant(granularity or "wdGranularityWordLevel"), formatting=not formatting, case_changes=not case_changes, whitespace=not whitespace, tables=not tables, headers=not headers, footnotes=not footnotes, textboxes=not textboxes, fields=not fields, comments=not comments, moves=not moves, author=author, ignore_warnings=ignore_warnings)
-    click.echo(f'Result document: "{result.name}"')
 
 
 @cli.command("find", short_help="Find text.", help="Find text in the active document.")

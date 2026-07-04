@@ -99,9 +99,6 @@ Examples from the current core:
   - these form a family, but they are not just output modes of one operation;
     they represent different read/write intents, and a nested namespace is not
     available under the chained root CLI
-- `compare` vs `merge`
-  - these share many options, but they are separate Word operations and should
-    stay explicit
 
 In short:
 

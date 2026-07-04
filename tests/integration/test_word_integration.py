@@ -66,6 +66,7 @@ def test_word_client_can_compare_two_documents(word_client, temp_workspace):
     revised.save(path=str(revised_path))
     revised.close(force=True)
 
+    word_client.load_plugins(include="compare-merge")
     diff = word_client.compare(str(original_path), str(revised_path))
     assert diff.name
     diff.close(force=True)

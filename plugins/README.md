@@ -12,6 +12,16 @@ A plugin is a separate Python package that can expose:
 Plugin-specific architectural constraints and invariants live in
 [`DEVNOTES.md`](DEVNOTES.md).
 
+Bundled first-party plugins can ship by default with `msword-cli` while still
+remaining outside `msword_cli.py`. Current bundled examples include:
+
+- `save-as` for richer save-format handling;
+- `compare-merge` for two-document compare/merge review workflows.
+
+Plugin-specific command usage lives with each plugin package:
+
+- [`plugins/compare-merge/README.md`](compare-merge/README.md)
+
 
 ## Plugin package structure
 
@@ -78,7 +88,7 @@ Library plugin methods are loaded explicitly per client:
 from msword_cli import WordClient
 
 with WordClient() as word:
-    word.load_plugins(include="save-as")
+    word.load_plugins(include=("save-as", "compare-merge"))
     word.save_as("out.pdf", save_format="pdf")
 ```
 
@@ -177,6 +187,10 @@ still providing a deliberate local development override.
 command and the `WordClient.save_as(...)` library method. When the package is
 installed in the active environment, `msword-cli` discovers it through
 `msw.plugin` and registers the command automatically.
+
+`plugins/compare-merge` follows the same model for the `compare` and `merge`
+commands plus the dynamically injected `WordClient.compare(...)` and
+`WordClient.merge(...)` methods.
 
 For local development without reinstalling, you can point the CLI at the
 repository plugin root directly:
