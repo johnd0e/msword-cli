@@ -3,8 +3,9 @@
 `msword-cli` supports command plugins through the `msw.plugin` entry-point
 group.
 
-First-party plugins live under `plugins/*` in this repository. A plugin is a
-separate Python package that exposes one or more Click commands.
+First-party plugins live under `plugins/*` in this repository.
+A plugin is a separate Python package that exposes one or more Click commands.
+
 
 ## Plugin package structure
 
@@ -16,8 +17,9 @@ entry point in the `msw.plugin` group:
 save-as = "msword_save_as_plugin:save_as_cmd"
 ```
 
-The value uses `module:function` syntax. When the plugin is discovered,
-`msword-cli` loads that object and registers it as a CLI command.
+The value uses `module:function` syntax.
+When the plugin is discovered, `msword-cli` loads that object and registers it as a CLI command.
+
 
 ## Discovery model
 
@@ -26,9 +28,8 @@ The runtime has two discovery paths:
 - installed Python package metadata through `msw.plugin`
 - explicit local plugin roots passed through `--plugin-dir PATH`
 
-Installed plugins are discovered first through
-`importlib.metadata.entry_points()`. Every discovered plugin is loaded
-independently, and a failing plugin does not block later plugins from loading.
+Installed plugins are discovered first through `importlib.metadata.entry_points()`.
+Every discovered plugin is loaded independently, and a failing plugin does not block later plugins from loading.
 
 When `--plugin-dir PATH` is provided, `msword-cli` scans that directory for
 plugin subdirectories containing a `pyproject.toml` with `msw.plugin` entry
@@ -37,9 +38,11 @@ points.
 Without `--plugin-dir`, a plugin is discovered automatically only when it is
 installed into the active Python environment.
 
+
 ## Installed vs editable installs
 
 How the plugin is installed matters.
+
 
 ### Regular install
 
@@ -57,6 +60,7 @@ the source tree in this repository if you edit files after installation.
 Use this mode when you want to test the packaged artifact as users would
 consume it.
 
+
 ### Editable install
 
 Examples:
@@ -73,11 +77,13 @@ reinstall.
 
 Use this mode for local plugin development.
 
+
 ### Workspace install with `uv`
 
 In this repository, `uv sync` installs workspace packages as editable local
 packages. That means first-party plugins such as `plugins/save-as` are typically
 linked to the source tree during normal repository development.
+
 
 ## Development recommendations
 
@@ -89,6 +95,22 @@ If you are developing a plugin locally, prefer one of these workflows:
 Avoid regular non-editable installation during active plugin development unless
 you explicitly want to test the packaged install behavior, because the
 installed code can drift away from the files you are editing.
+
+
+## Command design under the chained CLI
+
+Plugins participate in the same chained root CLI as built-in commands.
+When adding a plugin command, prefer a command shape that works both:
+
+- as a standalone invocation;
+- as a step in an existing command chain after `open` or `new`.
+
+Because the root `msw` command uses Click command chaining, nested command
+namespaces are a poor fit for plugin features that need to participate in the
+existing chain.
+Prefer flat commands or option-driven behavior when that keeps
+the plugin aligned with the main CLI model.
+
 
 ## Precedence policy
 
@@ -104,10 +126,11 @@ This keeps runtime behavior aligned with the active Python environment and
 avoids silently mixing installed metadata with unrelated source files, while
 still providing a deliberate local development override.
 
+
 ## Example
 
-`plugins/save-as` is a first-party plugin package that provides the `save-as`
-command. When the package is installed in the active environment, `msword-cli`
+`plugins/save-as` is a first-party plugin package that provides the `save-as` command.
+When the package is installed in the active environment, `msword-cli`
 discovers it through `msw.plugin` and registers the command automatically.
 
 For local development without reinstalling, you can point the CLI at the

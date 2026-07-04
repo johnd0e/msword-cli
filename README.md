@@ -1,42 +1,50 @@
 # MS Word CLI & API
 
-This project is a modern evolution of the original [MSWord-CLI](https://github.com/waylan/msword-cli) package.
+This project is a modern evolution of the original [MSWord-CLI][https://github.com/waylan/msword-cli] package.
 
 A command-line interface (CLI) and object-oriented Python API for automating
-Microsoft Word using COM technology (`win32com`).
+Microsoft Word using Windows [COM] technology and the [Word Object Model],
+using Python's `pywin32`/`win32com` integration layer.
 
-MS Word CLI & API allows you to control Microsoft Word from the command line
-and/or automate it from your own scripts. Among other things, you may create, open, print, export, save, compare, merge, search, replace, review, and inspect Word documents.
+MS Word CLI & API allows you to control Microsoft Word from the command line and/or automate it from your own scripts.
+Among other things, you may create, open, print, export, save, compare, merge, search, replace, review, and inspect Word documents.
+
+[COM]: https://learn.microsoft.com/en-us/windows/win32/com/the-component-object-model
+[Word Object Model]: https://learn.microsoft.com/en-us/office/vba/api/overview/word/object-model
+
 
 ## Features
 
-- **Dual mode:** powerful CLI based on [Click](https://click.palletsprojects.com/)
+- **Dual mode:** powerful CLI based on [Click]
   and a high-level Python API for use as an importable module.
 - **Command pipelines:** subcommands can be chained together in a single call,
   loading Word only once regardless of how many operations are performed.
-- **Batch processing:** convenient classes and context managers for automating
-  many documents with explicit Word shutdown via `quit_on_exit=True`.
 - **Smart resource management:** lazy client initialization — Word is not started
   unless an actual command requires it (e.g. `--help` is instant).
 - **Plugin support:** third-party packages can register new CLI subcommands
   through the `msw.plugin` entry-point group.
+- **Batch processing:** API workflows can reuse one Word client across many
+  documents with explicit lifecycle control.
+
 
 ## Requirements and limitations
 
 ### Requirements
 
-- **OS:** Windows (COM interface is Windows-only).
+- **OS:** Windows - the project depends on Microsoft Word automation via Windows [COM].
 - **Software:** A working copy of Microsoft Word installed.
 - **Python:** `>=3.8`.
-- **Dependencies:** [pywin32](https://github.com/mhammond/pywin32),
-  [Click](https://click.palletsprojects.com/).
+- **Dependencies:** [pywin32], [Click].
+
+[click]: https://click.palletsprojects.com/
+[pywin32]: https://github.com/mhammond/pywin32
+
 
 ### Limitations
 
-- Does not work on Linux or macOS.
 - In case of a hard crash (e.g. `Ctrl+C` outside a context manager),
   `WINWORD.EXE` may remain running in the background.
-- Focuses on Windows Word automation through COM and therefore depends on the local Word installation and its object model behavior.
+
 
 ## Installation
 
@@ -66,6 +74,7 @@ To use the Python API from another uv project, add the Git dependency:
 uv add git+https://github.com/johnd0e/msword-cli.git
 ```
 
+
 ## CLI usage
 
 If installed as a package, use the `msw` entry point:
@@ -88,6 +97,7 @@ First-party plugins are installed by default with `msword-cli`. The `save-as`
 command is provided by that default plugin, while `export` remains the
 PDF/XPS-specific `ExportAsFixedFormat` route in the core.
 
+
 ### Command groups
 
 | Group | Commands |
@@ -102,6 +112,7 @@ For a complete list of options for any subcommand, run:
 ```bash
 msw <command> --help
 ```
+
 
 ### Common examples
 
@@ -132,6 +143,7 @@ Open Documents:
 The `*` prefix marks the currently active document. The trailing `*` on a
 filename indicates unsaved changes.
 
+
 ### Chaining commands
 
 Subcommands can be chained in a single call. Word is loaded only once, which
@@ -158,10 +170,10 @@ msw export --pdf . export --xps .
 Note: `.` (a single dot) refers to the current working directory. The export
 command will resolve the output filename from the active document's name.
 
+
 ### Comparing documents
 
-The `compare` command wraps Word's
-[`Application.CompareDocuments`](https://learn.microsoft.com/en-us/office/vba/api/word.application.comparedocuments)
+The `compare` command wraps Word's [`Application.CompareDocuments`][word-compare-docs]
 and produces a new document with all differences shown as tracked changes:
 
 ```bash
@@ -190,10 +202,12 @@ Use `--author <name>` to override the author attributed to tracked changes
 (defaults to the Word username). Use `--ignore-warnings` to suppress any
 Word comparison warning dialogs.
 
+[word-compare-docs]: https://learn.microsoft.com/en-us/office/vba/api/word.application.comparedocuments
+
+
 ### Merging documents
 
-The `merge` command wraps
-[`Application.MergeDocuments`](https://learn.microsoft.com/en-us/dotnet/api/microsoft.office.interop.word._application.mergedocuments)
+The `merge` command wraps [`Application.MergeDocuments`][word-merge-docs]
 and combines the tracked changes from both documents:
 
 ```bash
@@ -204,13 +218,27 @@ It accepts the same `--no-*`, `--char-level`, `--author`, and
 `--ignore-warnings` options as `compare`. The destination flags are
 `--to-original` and `--to-revised` (default: new document).
 
+[word-merge-docs]: https://learn.microsoft.com/en-us/dotnet/api/microsoft.office.interop.word._application.mergedocuments
+
+
+## Plugins
+
+MSWord-CLI supports third-party plugins. Plugins add Click commands that can be
+used in the same chain as built-in commands, and first-party plugins live under
+[`plugins/`](plugins/).
+
+Plugin packaging, discovery, install modes, precedence rules, and development
+guidance are documented in [plugins/README.md](plugins/README.md).
+
+
 ## Library usage
 
 The project exposes a high-level Python API built around `WordClient` and
 `Document`. It writes nothing to `stdout` and raises `WordAPIError` on
 failures, making errors straightforward to handle in larger scripts.
 
-### Example: batch folder conversion to PDF
+
+### Example: batch processing folder conversion to PDF
 
 The `with` context manager ensures Word is closed correctly even if an error
 occurs:
@@ -240,6 +268,7 @@ if __name__ == "__main__":
     convert_folder_to_pdf(r"C:\Users\User\Documents")
 ```
 
+
 ### Example: compare two documents via API
 
 ```python
@@ -250,6 +279,7 @@ with WordClient(visible=True, quit_on_exit=True) as word:
     print(f"Diff document: {diff.name}")
     diff.save("diff.docx", force=True)
 ```
+
 
 ### Advanced API: direct COM access via `native`
 
@@ -273,47 +303,6 @@ with WordClient(visible=False, quit_on_exit=True) as word:
 returns the raw COM proxy as-is; any later COM errors from using that proxy are
 not wrapped by `msword-cli`.
 
-## Plugins
-
-MSWord-CLI supports third-party plugins. A plugin adds one or more Click
-commands that can be included in any chain alongside the built-in ones.
-
-Create a file `msw_import.py`:
-
-```python
-import click
-
-@click.command('import')
-def imprt():
-    '''Import data into the active document.'''
-    click.echo('Importing data...')
-```
-
-Register it in your `pyproject.toml`:
-
-```toml
-[project.entry-points."msw.plugin"]
-import = "msw_import:imprt"
-```
-
-Sync the editable development environment so the plugin entry point is picked
-up immediately:
-
-```bash
-uv sync --dev
-```
-
-The new command will appear in the project environment and can be used in
-chains:
-
-```bash
-uv run msw open data.docx import close
-```
-
-Installed plugins can share the same Word instance as built-in commands through
-`get_client()`. If a plugin needs lower-level Word automation, use the public
-`native` escape hatch instead of reaching into private attributes such as
-`_word` or `_doc`.
 
 ## Development notes
 
