@@ -12,20 +12,37 @@ from unittest.mock import Mock
 import pytest
 from click.testing import CliRunner
 
+from tests._temp_support import apply_temp_environment, choose_temp_root
+
+
+def pytest_configure(config):
+    root = choose_temp_root(Path(__file__).resolve().parents[1])
+    config.option.basetemp = os.fspath(root / "pytest")
+
 
 @pytest.fixture(scope="session", autouse=True)
 def test_tempdir():
-    root = Path(__file__).resolve().parents[1] / ".pytest-tmp"
-    root.mkdir(exist_ok=True)
-    os.environ["TMPDIR"] = str(root)
+    root = choose_temp_root(Path(__file__).resolve().parents[1])
+    previous = {name: os.environ.get(name) for name in ("TMPDIR", "TEMP", "TMP")}
+    apply_temp_environment(root)
+    if root.name == ".pytest-tmp":
+        root.mkdir(parents=True, exist_ok=True)
     yield
+    for name, value in previous.items():
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
 
 
 @pytest.fixture(autouse=True)
 def patch_click_isolated_filesystem(monkeypatch):
     @contextmanager
     def isolated_filesystem(self, temp_dir=None):
-        base = Path(temp_dir) if temp_dir is not None else Path(__file__).resolve().parents[1] / ".pytest-tmp"
+        if temp_dir is None:
+            base = choose_temp_root(Path(__file__).resolve().parents[1])
+        else:
+            base = Path(temp_dir)
         base.mkdir(parents=True, exist_ok=True)
         cwd = Path.cwd()
         target = base / f"tmp-{uuid.uuid4().hex}"

@@ -14,9 +14,25 @@ Design notes:
 Run the suite from the project root:
 
 ```bash
-uv sync --dev
-uv run --no-sync pytest -q
+./scripts/uv-run.ps1 sync --dev
+./scripts/run-pytest.ps1
 ```
+
+### Development in sandboxed environments
+
+In some restricted or sandboxed Windows environments, `uv` cannot use its
+default user cache. For that case, the repository includes PowerShell wrappers
+in `scripts/`.
+
+- `uv-run.ps1` wraps `uv` and preserves `UV_CACHE_DIR` if it is already set.
+- If `UV_CACHE_DIR` is not set and the default user cache is not writable, it
+  falls back to `%TEMP%\msword-cli-uv-cache`.
+- `run-pytest.ps1` is the stable entry point for the test suite and delegates
+  to `uv-run.ps1`.
+
+This keeps automated and agent-driven runs stable without creating `.uv-cache`
+or similar temp directories in the repository root. In a normal local setup,
+plain `uv` commands are still fine.
 
 Integration tests:
 - Live Word COM tests live in `tests/integration/`.
@@ -27,5 +43,5 @@ Integration tests:
 
 ```bash
 $env:MSWORD_RUN_INTEGRATION="1"
-uv run --no-sync pytest -q -m integration
+./scripts/run-pytest.ps1 -Integration
 ```
