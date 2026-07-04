@@ -12,27 +12,27 @@ from unittest.mock import Mock
 import pytest
 from click.testing import CliRunner
 
-from tests._temp_support import apply_temp_environment, choose_temp_root
+from tests._temp_support import apply_temp_environment, choose_run_temp_root, remove_temp_tree
 
 
 def pytest_configure(config):
-    root = choose_temp_root(Path(__file__).resolve().parents[1])
-    config.option.basetemp = os.fspath(root / "pytest")
+    repo_root = Path(__file__).resolve().parents[1]
+    config.option.basetemp = os.fspath(choose_run_temp_root(repo_root) / "pytest")
 
 
 @pytest.fixture(scope="session", autouse=True)
 def test_tempdir():
-    root = choose_temp_root(Path(__file__).resolve().parents[1])
-    previous = {name: os.environ.get(name) for name in ("TMPDIR", "TEMP", "TMP")}
+    root = choose_run_temp_root(Path(__file__).resolve().parents[1])
+    previous = {name: os.environ.get(name) for name in ("TMPDIR", "TEMP", "TMP", "MSWORD_TEST_RUN_TEMP_ROOT")}
     apply_temp_environment(root)
-    if root.name == ".pytest-tmp":
-        root.mkdir(parents=True, exist_ok=True)
+    root.mkdir(parents=True, exist_ok=True)
     yield
     for name, value in previous.items():
         if value is None:
             os.environ.pop(name, None)
         else:
             os.environ[name] = value
+    remove_temp_tree(root)
 
 
 @pytest.fixture(autouse=True)
@@ -40,7 +40,7 @@ def patch_click_isolated_filesystem(monkeypatch):
     @contextmanager
     def isolated_filesystem(self, temp_dir=None):
         if temp_dir is None:
-            base = choose_temp_root(Path(__file__).resolve().parents[1])
+            base = choose_run_temp_root(Path(__file__).resolve().parents[1])
         else:
             base = Path(temp_dir)
         base.mkdir(parents=True, exist_ok=True)
