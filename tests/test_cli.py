@@ -344,7 +344,7 @@ def test_export_requires_path(msword_cli):
 
     result = invoke(runner, msword_cli, ["export"])
 
-    assert result.exit_code == 2
+    assert result.exit_code == 2  # noqa: PLR2004
 
 
 def test_export_defaults(msword_cli, monkeypatch):
@@ -432,7 +432,7 @@ def test_export_bad_range(msword_cli, monkeypatch):
 
     result = invoke(runner, msword_cli, ["export", "--pages", "4-3", "foo.pdf"])
 
-    assert result.exit_code == 2
+    assert result.exit_code == 2  # noqa: PLR2004
     doc.export_fixed_format.assert_not_called()
 
 
@@ -558,7 +558,7 @@ def test_activate_bad_index(msword_cli, monkeypatch):
 
 def test_help_lists_compare_and_merge_as_plugins(msword_cli, monkeypatch):
     runner = CliRunner()
-    monkeypatch.setattr(msword_cli, "_installed_plugin_entry_points", lambda: [])
+    monkeypatch.setattr(msword_cli, "_installed_plugin_entry_points", list)
 
     result = invoke(runner, msword_cli, ["--help"])
 
@@ -576,7 +576,7 @@ def test_print_rejects_non_positive_copies(msword_cli, monkeypatch):
 
     result = invoke(runner, msword_cli, ["print", "--copies", "0"])
 
-    assert result.exit_code == 2
+    assert result.exit_code == 2  # noqa: PLR2004
     doc.print_out.assert_not_called()
 
 

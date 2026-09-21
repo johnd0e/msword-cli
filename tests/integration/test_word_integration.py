@@ -1,7 +1,7 @@
+from contextlib import suppress
 from pathlib import Path
 
 import pytest
-
 
 pytestmark = pytest.mark.integration
 
@@ -13,10 +13,8 @@ def word_client(real_msword_cli):
         yield client
     finally:
         for document in client.documents:
-            try:
+            with suppress(real_msword_cli.WordAPIError):
                 document.close(force=True)
-            except real_msword_cli.WordAPIError:
-                pass
         client.quit()
 
 

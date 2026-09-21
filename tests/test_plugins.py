@@ -1,9 +1,10 @@
+from __future__ import annotations
+
+import sys
+import warnings
 from importlib import import_module
 from pathlib import Path
 from types import SimpleNamespace
-import sys
-import warnings
-from typing import Optional
 from unittest.mock import Mock
 
 import click
@@ -15,7 +16,6 @@ except ImportError:  # pragma: no cover - Python < 3.11
     import tomli as tomllib
 
 from tests.conftest import _make_pywin32_stubs
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -36,11 +36,11 @@ def _plugin_module_name(command_name: str) -> str:
     return command_name.replace("-", "_")
 
 
-def make_manifest_module(
+def make_manifest_module(  # noqa: PLR0913, PLR0917
     package_name: str,
     plugin_name: str,
-    method_name: Optional[str] = None,
-    command_name: Optional[str] = None,
+    method_name: str | None = None,
+    command_name: str | None = None,
     command_body: str = "click.echo('local plugin')",
     method_body: str = "return f'{client.__class__.__name__}:{value}'",
 ) -> str:
@@ -217,17 +217,14 @@ def test_plugin_dir_failure_does_not_block_later_local_plugins(monkeypatch, tmp_
     broken_dir = tmp_path / 'broken'
     broken_dir.mkdir()
     (broken_dir / 'pyproject.toml').write_text(
-        '\n'.join(
-            [
-                '[project]',
-                'name = "broken"',
-                'version = "0.1.0"',
-                '',
-                '[project.entry-points."msw.plugin"]',
-                'broken = "broken:not_a_command"',
-                '',
-            ]
-        ),
+        """[project]
+name = "broken"
+version = "0.1.0"
+
+[project.entry-points."msw.plugin"]
+broken = "broken:not_a_command"
+
+""",
         encoding='utf-8',
     )
     write_local_plugin(tmp_path, 'working_plugin', 'working-plugin')
@@ -349,17 +346,14 @@ def test_word_client_load_plugins_loads_local_manifest_plugins(monkeypatch, tmp_
     plugin_dir = tmp_path / "local_plugin"
     plugin_dir.mkdir()
     (plugin_dir / "pyproject.toml").write_text(
-        "\n".join(
-            [
-                "[project]",
-                'name = "local-plugin"',
-                'version = "0.1.0"',
-                "",
-                '[project.entry-points."msw.plugin"]',
-                'hello-plugin = "local_plugin:plugin_manifest"',
-                "",
-            ]
-        ),
+        """[project]
+name = "local-plugin"
+version = "0.1.0"
+
+[project.entry-points."msw.plugin"]
+hello-plugin = "local_plugin:plugin_manifest"
+
+""",
         encoding="utf-8",
     )
     (plugin_dir / "local_plugin.py").write_text(

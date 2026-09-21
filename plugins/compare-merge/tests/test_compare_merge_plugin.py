@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 from click.testing import CliRunner
+
 from tests.conftest import FakeWordApp
 
 
@@ -75,7 +76,7 @@ def test_compare_plugin_method_uses_word_username_by_default(msword_cli, monkeyp
     revised_doc = Mock()
     result_doc = Mock()
     app = FakeWordApp()
-    monkeypatch.setattr(msword_cli, "_installed_plugin_entry_points", lambda: [])
+    monkeypatch.setattr(msword_cli, "_installed_plugin_entry_points", list)
     app.Documents.Open = Mock(side_effect=[original_doc, revised_doc])
     app.CompareDocuments = Mock(return_value=result_doc)
     monkeypatch.setattr(msword_cli.com.gencache, "EnsureDispatch", Mock(return_value=app))
@@ -99,7 +100,7 @@ def test_merge_plugin_keeps_original_destination_open(msword_cli, monkeypatch):
     original_doc = Mock()
     revised_doc = Mock()
     app = FakeWordApp()
-    monkeypatch.setattr(msword_cli, "_installed_plugin_entry_points", lambda: [])
+    monkeypatch.setattr(msword_cli, "_installed_plugin_entry_points", list)
     app.Documents.Open = Mock(side_effect=[original_doc, revised_doc])
     app.MergeDocuments = Mock(return_value=original_doc)
     monkeypatch.setattr(msword_cli.com.gencache, "EnsureDispatch", Mock(return_value=app))

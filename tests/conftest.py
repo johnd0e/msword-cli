@@ -1,5 +1,5 @@
-import importlib
 import datetime as dt
+import importlib
 import os
 import shutil
 import sys
@@ -12,7 +12,11 @@ from unittest.mock import Mock
 import pytest
 from click.testing import CliRunner
 
-from tests._temp_support import apply_temp_environment, choose_run_temp_root, remove_temp_tree
+from tests._temp_support import (
+    apply_temp_environment,
+    choose_run_temp_root,
+    remove_temp_tree,
+)
 
 
 def pytest_configure(config):
@@ -179,8 +183,8 @@ def real_msword_cli():
     try:
         import pythoncom
         import pywintypes  # noqa: F401
-        import win32com.client  # noqa: F401
-        import win32com.client.CLSIDToClass  # noqa: F401
+        import win32com.client
+        import win32com.client.CLSIDToClass
         import win32com.client.util  # noqa: F401
     except ImportError as exc:
         pytest.skip(f"pywin32 is not available: {exc}")
@@ -302,8 +306,8 @@ class FakeComDocument:
                 FakeProperty("Title", "Report"),
                 FakeProperty("Author", "Alice"),
                 FakeProperty("Last Author", "Bob"),
-                FakeProperty("Creation Date", dt.datetime(2026, 6, 1, 9, 30, 0)),
-                FakeProperty("Last Save Time", dt.datetime(2026, 6, 29, 18, 45, 0)),
+                FakeProperty("Creation Date", dt.datetime(2026, 6, 1, 9, 30, 0)),  # noqa: DTZ001 - Word COM fixture value is naive
+                FakeProperty("Last Save Time", dt.datetime(2026, 6, 29, 18, 45, 0)),  # noqa: DTZ001 - Word COM fixture value is naive
             ]
         )
         self.CustomDocumentProperties = FakePropertyCollection([FakeProperty("Project", "CLI")])

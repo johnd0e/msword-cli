@@ -7,7 +7,16 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from tests.conftest import FakeCollection, FakeComment, FakeCommentsCollection, FakeComDocument, FakeFieldsCollection, FakePropertyCollection, FakeRevisionsCollection, FakeWordApp
+from tests.conftest import (
+    FakeCollection,
+    FakeComDocument,
+    FakeComment,
+    FakeCommentsCollection,
+    FakeFieldsCollection,
+    FakePropertyCollection,
+    FakeRevisionsCollection,
+    FakeWordApp,
+)
 
 
 def test_print_version_does_not_initialize_client(msword_cli, monkeypatch):
@@ -185,7 +194,7 @@ def test_word_client_quit_keeps_client_after_failure_and_retries(msword_cli, mon
 
     client.quit()
     assert client.closed is True
-    assert app.Quit.call_count == 2
+    assert app.Quit.call_count == 2  # noqa: PLR2004
 
 
 def test_word_client_context_preserves_body_error_when_quit_fails(msword_cli, monkeypatch):
@@ -193,9 +202,8 @@ def test_word_client_context_preserves_body_error_when_quit_fails(msword_cli, mo
     app.Quit.side_effect = RuntimeError("quit boom")
     monkeypatch.setattr(msword_cli.com.gencache, "EnsureDispatch", Mock(return_value=app))
 
-    with pytest.raises(ValueError, match="body boom"):
-        with msword_cli.WordClient(quit_on_exit=True):
-            raise ValueError("body boom")
+    with pytest.raises(ValueError, match="body boom"), msword_cli.WordClient(quit_on_exit=True):
+        raise ValueError("body boom")
 
 
 def test_word_client_closes_word_when_visible_setup_fails(msword_cli, monkeypatch):
@@ -285,12 +293,12 @@ def test_word_client_load_plugins_injects_compare_merge_methods(msword_cli, monk
     plugin_dir = Path(msword_cli.__file__).with_name("plugins") / "compare-merge"
     client = msword_cli.WordClient.__new__(msword_cli.WordClient)
     client._loaded_library_plugins = set()
-    monkeypatch.setattr(msword_cli, "_installed_plugin_entry_points", lambda: [])
+    monkeypatch.setattr(msword_cli, "_installed_plugin_entry_points", list)
 
     msword_cli.WordClient.load_plugins(client, plugin_dir=str(plugin_dir), include="compare-merge")
 
-    assert callable(getattr(client, "compare"))
-    assert callable(getattr(client, "merge"))
+    assert callable(client.compare)
+    assert callable(client.merge)
 
 
 def test_unknown_constant_does_not_start_word(msword_cli):
@@ -325,8 +333,8 @@ def test_word_client_track_changes_and_revisions(msword_cli, monkeypatch):
     client = msword_cli.WordClient(visible=False)
 
     assert client.set_track_changes(True) is True
-    assert client.accept_revisions() == 3
-    assert client.reject_revisions(scope="selection") == 2
+    assert client.accept_revisions() == 3  # noqa: PLR2004
+    assert client.reject_revisions(scope="selection") == 2  # noqa: PLR2004
     com_doc.Revisions.AcceptAll.assert_called_once_with()
     app.Selection.Range.Revisions.RejectAll.assert_called_once_with()
 
@@ -345,7 +353,7 @@ def test_word_client_comment_operations(msword_cli, monkeypatch):
 
     assert comments[0]["author"] == "Alice"
     assert comments[1]["text"] == "Two"
-    assert deleted == 2
+    assert deleted == 2  # noqa: PLR2004
     first.Delete.assert_called_once_with()
     second.Delete.assert_called_once_with()
 
@@ -427,8 +435,8 @@ def test_word_client_properties_support_iterable_only_com_collections(msword_cli
         [
             prop("Author", "Alice"),
             prop("Last Author", "Bob"),
-            prop("Creation Date", dt.datetime(2026, 6, 1, 9, 30, 0)),
-            prop("Last Save Time", dt.datetime(2026, 6, 29, 18, 45, 0)),
+            prop("Creation Date", dt.datetime(2026, 6, 1, 9, 30, 0)),  # noqa: DTZ001 - Word COM fixture value is naive
+            prop("Last Save Time", dt.datetime(2026, 6, 29, 18, 45, 0)),  # noqa: DTZ001 - Word COM fixture value is naive
         ]
     )
     com_doc.CustomDocumentProperties = IterableOnlyPropertyCollection([prop("Project", "CLI")])
@@ -440,8 +448,8 @@ def test_word_client_properties_support_iterable_only_com_collections(msword_cli
     assert client.list_properties() == [
         {"kind": "built-in", "name": "Author", "value": "Alice"},
         {"kind": "built-in", "name": "Last Author", "value": "Bob"},
-        {"kind": "built-in", "name": "Creation Date", "value": dt.datetime(2026, 6, 1, 9, 30, 0)},
-        {"kind": "built-in", "name": "Last Save Time", "value": dt.datetime(2026, 6, 29, 18, 45, 0)},
+        {"kind": "built-in", "name": "Creation Date", "value": dt.datetime(2026, 6, 1, 9, 30, 0)},  # noqa: DTZ001 - Word COM fixture value is naive
+        {"kind": "built-in", "name": "Last Save Time", "value": dt.datetime(2026, 6, 29, 18, 45, 0)},  # noqa: DTZ001 - Word COM fixture value is naive
         {"kind": "custom", "name": "Project", "value": "CLI"},
     ]
 
@@ -488,4 +496,4 @@ def test_word_client_update_fields_find_replace_properties_and_summary(msword_cl
     assert prop["value"] is True
     assert summary["name"] == "report.docx"
     assert summary["author"] == "Alice"
-    assert stats["pages"] == 2
+    assert stats["pages"] == 2  # noqa: PLR2004

@@ -1,17 +1,16 @@
+from __future__ import annotations
+
 import os
 import subprocess
 from pathlib import Path
 
 
 def _write_fake_uv(bin_dir: Path) -> None:
-    script = "\n".join(
-        [
-            "@echo off",
-            "echo UV_CACHE_DIR=%UV_CACHE_DIR%",
-            "echo ARGS=%*",
-            "exit /b 0",
-        ]
-    )
+    script = """@echo off
+echo UV_CACHE_DIR=%UV_CACHE_DIR%
+echo ARGS=%*
+exit /b 0
+"""
     (bin_dir / "uv.cmd").write_text(script, encoding="ascii")
 
 
@@ -25,7 +24,14 @@ def _run_powershell(script: Path, *args: str, env: dict[str, str]) -> subprocess
         str(script),
         *args,
     ]
-    return subprocess.run(command, capture_output=True, text=True, check=False, env=env)
+    return subprocess.run(  # noqa: S603 - command is a test-local PowerShell invocation
+        command,
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        shell=False,
+    )
 
 
 def test_uv_run_preserves_explicit_uv_cache_dir(tmp_path):

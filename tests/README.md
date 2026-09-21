@@ -26,11 +26,10 @@ The required static check is:
 uv run ruff check .
 ```
 
-The project gate enables `E`, `F`, `I`, `B`, and `UP`. `E501`, `I001`, and
-`B009` are temporarily ignored because they are currently noisy in this
-codebase. Legacy annotation, broad COM exception-handling, timezone, and
-other style categories remain outside the gate while they are reviewed
-separately.
+The project gate enables `E`, `F`, `I`, `B`, `UP`, `BLE001`, `DTZ001`, `FA100`, `FA102`, `PERF203`, `PERF401`, `PLR0911`, `PLR0912`, `PLR0913`, `PLR0917`, `PLR2004`, `SIM105`, `S110`, `S112`, and `S603`. `E501` is allowed only in `tests/**/*.py` and `plugins/**/tests/**/*.py`.
+`S101` is scoped to those same test paths because it is the standard pytest
+`assert` idiom. The enabled maintainability rules use local suppressions where the
+existing public API or COM behavior intentionally requires the current shape.
 
 ### Development in sandboxed environments
 

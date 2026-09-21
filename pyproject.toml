@@ -58,8 +58,12 @@ dev = [
 target-version = "py38"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP"]
-ignore = ["E501", "I001", "B009"]
+select = ["E", "F", "I", "B", "UP", "BLE001", "DTZ001", "FA100", "FA102", "PERF203", "PERF401", "PLR0911", "PLR0912", "PLR0913", "PLR0917", "PLR2004", "SIM105", "S110", "S112", "S603"]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["E501", "S101"]
+"plugins/**/tests/**/*.py" = ["E501", "S101"]
 
 [tool.uv.sources]
 msword-cli-compare-merge = { workspace = true }

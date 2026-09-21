@@ -6,17 +6,20 @@
 # ]
 # ///
 
+from __future__ import annotations
+
 import json
 import sys
 import warnings
+from contextlib import suppress
 from datetime import date, datetime
 from functools import wraps
-from importlib.metadata import entry_points
 from importlib.machinery import PathFinder
+from importlib.metadata import entry_points
 from importlib.util import module_from_spec
 from pathlib import Path
 from types import MethodType
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, ClassVar, Iterable, Sequence
 
 import click
 from pywintypes import com_error
@@ -47,7 +50,7 @@ def _resolve_constant(value: Any) -> Any:
 
 def _com_error_message(error: Exception, fallback: str = "COM error") -> str:
     excepinfo = getattr(error, "excepinfo", None)
-    if excepinfo and len(excepinfo) > 2 and excepinfo[2]:
+    if excepinfo and len(excepinfo) > 2 and excepinfo[2]:  # noqa: PLR2004
         return excepinfo[2]
     return str(error) or fallback
 
@@ -55,7 +58,7 @@ def _com_error_message(error: Exception, fallback: str = "COM error") -> str:
 def _safe_getattr(obj: Any, name: str, default: Any = None) -> Any:
     try:
         return getattr(obj, name)
-    except Exception:
+    except Exception:  # noqa: BLE001
         return default
 
 
@@ -64,7 +67,7 @@ def _iter_collection(collection: Any) -> Iterable[Any]:
         return []
     try:
         return list(collection)
-    except Exception:
+    except Exception:  # noqa: BLE001, S110
         pass
     count = _safe_getattr(collection, "Count", 0) or 0
     items = []
@@ -74,7 +77,7 @@ def _iter_collection(collection: Any) -> Iterable[Any]:
                 items.append(collection.Item(index))
             else:
                 items.append(collection(index))
-        except Exception:
+        except Exception:  # noqa: BLE001, PERF203, S112
             continue
     return items
 
@@ -118,7 +121,7 @@ def _normalize_output_path(path: str) -> str:
     return str(Path(path).resolve())
 
 
-def _normalize_plugin_include(include: Optional[Any]) -> Optional[Tuple[str, ...]]:
+def _normalize_plugin_include(include: Any | None) -> tuple[str, ...] | None:
     if include is None:
         return None
     if isinstance(include, str):
@@ -150,7 +153,7 @@ class Document:
         return self._doc.Name
 
     @property
-    def path(self) -> Optional[str]:
+    def path(self) -> str | None:
         return _safe_getattr(self._doc, "FullName", None)
 
     @property
@@ -161,9 +164,11 @@ class Document:
         try:
             self._doc.Activate()
         except com_error as error:
-            raise WordAPIError(f"Activation failed: {_com_error_message(error)}") from error
+            raise WordAPIError(
+                f"Activation failed: {_com_error_message(error)}"
+            ) from error
 
-    def save(self, path: Optional[str] = None, force: bool = False) -> None:
+    def save(self, path: str | None = None, force: bool = False) -> None:
         try:
             if path:
                 self._doc.SaveAs(_normalize_output_path(path))
@@ -178,7 +183,9 @@ class Document:
             self._doc.SaveCopyAs(final_path)
             return final_path
         except com_error as error:
-            raise WordAPIError(f"Save copy failed: {_com_error_message(error)}") from error
+            raise WordAPIError(
+                f"Save copy failed: {_com_error_message(error)}"
+            ) from error
 
     def close(self, force: bool = False) -> None:
         try:
@@ -191,13 +198,13 @@ class Document:
         except com_error as error:
             raise WordAPIError(f"Close failed: {_com_error_message(error)}") from error
 
-    def export_fixed_format(
+    def export_fixed_format(  # noqa: PLR0913, PLR0917
         self,
         path: str,
         format_val: Any = "wdExportFormatPDF",
         show: bool = False,
         optimize: Any = "wdExportOptimizeForPrint",
-        pages: Optional[Tuple[int, int]] = None,
+        pages: tuple[int, int] | None = None,
         rng: Any = None,
         markup: bool = False,
         properties: bool = False,
@@ -212,7 +219,12 @@ class Document:
             if path_obj.is_dir():
                 path_obj = path_obj / Path(self.name).stem
             if path_obj.suffix.lower() not in [".pdf", ".xps"]:
-                ext = ".pdf" if _resolve_constant(format_val) == _resolve_constant("wdExportFormatPDF") else ".xps"
+                ext = (
+                    ".pdf"
+                    if _resolve_constant(format_val)
+                    == _resolve_constant("wdExportFormatPDF")
+                    else ".xps"
+                )
                 path_obj = path_obj.with_suffix(ext)
 
             final_path = str(path_obj.resolve())
@@ -221,8 +233,14 @@ class Document:
                 "ExportFormat": _resolve_constant(format_val),
                 "OpenAfterExport": show,
                 "OptimizeFor": _resolve_constant(optimize),
-                "Range": _resolve_constant(rng) if rng else _resolve_constant("wdExportFromTo") if pages else _resolve_constant("wdExportAllDocument"),
-                "Item": _resolve_constant("wdExportDocumentWithMarkup") if markup else _resolve_constant("wdExportDocumentContent"),
+                "Range": _resolve_constant(rng)
+                if rng
+                else _resolve_constant("wdExportFromTo")
+                if pages
+                else _resolve_constant("wdExportAllDocument"),
+                "Item": _resolve_constant("wdExportDocumentWithMarkup")
+                if markup
+                else _resolve_constant("wdExportDocumentContent"),
                 "IncludeDocProps": properties,
                 "KeepIRM": not irm,
                 "CreateBookmarks": _resolve_constant(bookmarks),
@@ -239,15 +257,15 @@ class Document:
         except com_error as error:
             raise WordAPIError(f"Export failed: {_com_error_message(error)}") from error
 
-    def print_out(
+    def print_out(  # noqa: PLR0913, PLR0917
         self,
         copies: int = 1,
-        pages: Optional[str] = None,
+        pages: str | None = None,
         pagetype: Any = "wdPrintAllPages",
         rng: Any = "wdPrintAllDocument",
         item: Any = "wdPrintDocumentContent",
         no_collate: bool = False,
-        to_file: Optional[str] = None,
+        to_file: str | None = None,
         append: bool = False,
         columns: int = 1,
         rows: int = 1,
@@ -291,17 +309,15 @@ class WordClient:
                 self._word.Visible = True
         except com_error as error:
             if self._word is not None:
-                try:
+                with suppress(Exception):
                     self._word.Quit()
-                except Exception:
-                    pass
-            raise WordAPIError(f"Failed to initialize Word: {_com_error_message(error)}") from error
+            raise WordAPIError(
+                f"Failed to initialize Word: {_com_error_message(error)}"
+            ) from error
         except Exception as error:
             if self._word is not None:
-                try:
+                with suppress(Exception):
                     self._word.Quit()
-                except Exception:
-                    pass
             if isinstance(error, WordAPIError):
                 raise
             raise WordAPIError("Unable to load 'Word.Application'.") from error
@@ -329,40 +345,56 @@ class WordClient:
         return self._word
 
     def _active_range(self, scope: str) -> Any:
-        range_obj = self.native.Selection.Range if scope == "selection" else self.active_document.native.Content
+        range_obj = (
+            self.native.Selection.Range
+            if scope == "selection"
+            else self.active_document.native.Content
+        )
         return _duplicate_range(range_obj)
 
     def _comments_for_scope(self, scope: str) -> Any:
-        return self.native.Selection.Range.Comments if scope == "selection" else self.active_document.native.Comments
+        return (
+            self.native.Selection.Range.Comments
+            if scope == "selection"
+            else self.active_document.native.Comments
+        )
 
     def _revisions_for_scope(self, scope: str) -> Any:
-        return self.native.Selection.Range.Revisions if scope == "selection" else self.active_document.native.Revisions
+        return (
+            self.native.Selection.Range.Revisions
+            if scope == "selection"
+            else self.active_document.native.Revisions
+        )
 
     def _get_property_from_collection(self, collection: Any, name: str) -> Any:
         try:
             if hasattr(collection, "Item"):
                 return collection.Item(name)
             return collection(name)
-        except Exception:
+        except Exception:  # noqa: BLE001
             for item in _iter_collection(collection):
                 item_name = _safe_getattr(item, "Name", "")
                 if item_name and item_name.lower() == name.lower():
                     return item
         raise WordAPIError(f'Property "{name}" not found.')
 
-    def _serialize_comment(self, comment: Any, index: int) -> Dict[str, Any]:
+    def _serialize_comment(self, comment: Any, index: int) -> dict[str, Any]:
         return {
             "index": index,
             "author": _safe_getattr(comment, "Author", None),
             "initials": _safe_getattr(comment, "Initial", None),
             "date": str(_safe_getattr(comment, "Date", "")) or None,
             "text": _safe_getattr(_safe_getattr(comment, "Range", None), "Text", None),
-            "scope_text": _safe_getattr(_safe_getattr(comment, "Scope", None), "Text", None),
+            "scope_text": _safe_getattr(
+                _safe_getattr(comment, "Scope", None), "Text", None
+            ),
         }
 
     def _built_in_property_value(self, document: Any, name: str) -> Any:
         try:
-            item = self._get_property_from_collection(document.BuiltInDocumentProperties, name)
+            item = self._get_property_from_collection(
+                document.BuiltInDocumentProperties, name
+            )
         except WordAPIError:
             return None
         return _normalize_summary_value(_safe_getattr(item, "Value", None))
@@ -386,7 +418,11 @@ class WordClient:
 
     @property
     def template_dir(self) -> Path:
-        return Path(self.native.Options.DefaultFilePath(_resolve_constant("wdUserTemplatesPath")))
+        return Path(
+            self.native.Options.DefaultFilePath(
+                _resolve_constant("wdUserTemplatesPath")
+            )
+        )
 
     @property
     def active_document(self) -> Document:
@@ -396,15 +432,19 @@ class WordClient:
             raise WordAPIError("No active document available.") from error
 
     @property
-    def documents(self) -> List[Document]:
+    def documents(self) -> list[Document]:
         word = self.native
-        return [Document(word.Documents.Item(i)) for i in range(1, word.Documents.Count + 1)]
+        return [
+            Document(word.Documents.Item(i)) for i in range(1, word.Documents.Count + 1)
+        ]
 
     @property
     def document_count(self) -> int:
         return self.native.Documents.Count
 
-    def load_plugins(self, plugin_dir: Optional[str] = None, include: Optional[Any] = None) -> None:
+    def load_plugins(
+        self, plugin_dir: str | None = None, include: Any | None = None
+    ) -> None:
         include_names = _normalize_plugin_include(include)
         manifests = _discover_plugin_manifests((plugin_dir,) if plugin_dir else ())
         for manifest in manifests:
@@ -416,15 +456,24 @@ class WordClient:
             self._bind_plugin_methods(plugin_name, manifest.get("client_methods", {}))
             self._loaded_library_plugins.add(plugin_name)
 
-    def _bind_plugin_methods(self, plugin_name: str, client_methods: Dict[str, Any]) -> None:
+    def _bind_plugin_methods(
+        self, plugin_name: str, client_methods: dict[str, Any]
+    ) -> None:
         for method_name, func in client_methods.items():
             if hasattr(self, method_name):
                 raise WordAPIError(
-                    f'Plugin "{plugin_name}" method "{method_name}" conflicts with existing WordClient attribute "{method_name}".'
+                    f'Plugin "{plugin_name}" method "{method_name}" conflicts with '
+                    f'existing WordClient attribute "{method_name}".'
                 )
             setattr(self, method_name, MethodType(func, self))
 
-    def open(self, path: str, visible: bool = True, read_only: bool = False, repair: bool = False) -> Document:
+    def open(
+        self,
+        path: str,
+        visible: bool = True,
+        read_only: bool = False,
+        repair: bool = False,
+    ) -> Document:
         doc = None
         try:
             word = self.native
@@ -441,25 +490,25 @@ class WordClient:
             return document
         except WordAPIError:
             if doc is not None:
-                try:
+                with suppress(Exception):
                     doc.Close(_resolve_constant("wdDoNotSaveChanges"))
-                except Exception:
-                    pass
             raise
         except com_error as error:
             if doc is not None:
-                try:
+                with suppress(Exception):
                     doc.Close(_resolve_constant("wdDoNotSaveChanges"))
-                except Exception:
-                    pass
-            raise WordAPIError(f"Failed to open document: {_com_error_message(error)}") from error
+            raise WordAPIError(
+                f"Failed to open document: {_com_error_message(error)}"
+            ) from error
 
-    def new(self, template: Optional[str] = None, visible: bool = True) -> Document:
+    def new(self, template: str | None = None, visible: bool = True) -> Document:
         doc = None
         try:
             word = self.native
             if template:
-                doc = word.Documents.Add(Template=_normalize_output_path(template), Visible=visible)
+                doc = word.Documents.Add(
+                    Template=_normalize_output_path(template), Visible=visible
+                )
             else:
                 doc = word.Documents.Add(Visible=visible)
             document = Document(doc)
@@ -469,18 +518,16 @@ class WordClient:
             return document
         except WordAPIError:
             if doc is not None:
-                try:
+                with suppress(Exception):
                     doc.Close(_resolve_constant("wdDoNotSaveChanges"))
-                except Exception:
-                    pass
             raise
         except com_error as error:
             if doc is not None:
-                try:
+                with suppress(Exception):
                     doc.Close(_resolve_constant("wdDoNotSaveChanges"))
-                except Exception:
-                    pass
-            raise WordAPIError(f"Failed to create new document: {_com_error_message(error)}") from error
+            raise WordAPIError(
+                f"Failed to create new document: {_com_error_message(error)}"
+            ) from error
 
     def set_track_changes(self, enabled: bool) -> bool:
         try:
@@ -488,7 +535,9 @@ class WordClient:
             document.TrackRevisions = enabled
             return bool(document.TrackRevisions)
         except com_error as error:
-            raise WordAPIError(f"Track changes update failed: {_com_error_message(error)}") from error
+            raise WordAPIError(
+                f"Track changes update failed: {_com_error_message(error)}"
+            ) from error
 
     def accept_revisions(self, scope: str = "document") -> int:
         try:
@@ -497,7 +546,9 @@ class WordClient:
             revisions.AcceptAll()
             return count
         except com_error as error:
-            raise WordAPIError(f"Accept revisions failed: {_com_error_message(error)}") from error
+            raise WordAPIError(
+                f"Accept revisions failed: {_com_error_message(error)}"
+            ) from error
 
     def reject_revisions(self, scope: str = "document") -> int:
         try:
@@ -506,14 +557,21 @@ class WordClient:
             revisions.RejectAll()
             return count
         except com_error as error:
-            raise WordAPIError(f"Reject revisions failed: {_com_error_message(error)}") from error
+            raise WordAPIError(
+                f"Reject revisions failed: {_com_error_message(error)}"
+            ) from error
 
-    def list_comments(self, scope: str = "document") -> List[Dict[str, Any]]:
+    def list_comments(self, scope: str = "document") -> list[dict[str, Any]]:
         try:
             comments = self._comments_for_scope(scope)
-            return [self._serialize_comment(comment, index) for index, comment in enumerate(_iter_collection(comments), start=1)]
+            return [
+                self._serialize_comment(comment, index)
+                for index, comment in enumerate(_iter_collection(comments), start=1)
+            ]
         except com_error as error:
-            raise WordAPIError(f"List comments failed: {_com_error_message(error)}") from error
+            raise WordAPIError(
+                f"List comments failed: {_com_error_message(error)}"
+            ) from error
 
     def delete_comments(self, scope: str = "document") -> int:
         try:
@@ -522,20 +580,30 @@ class WordClient:
                 comment.Delete()
             return len(comments)
         except com_error as error:
-            raise WordAPIError(f"Delete comments failed: {_com_error_message(error)}") from error
+            raise WordAPIError(
+                f"Delete comments failed: {_com_error_message(error)}"
+            ) from error
 
-    def export_comments(self, path: str, scope: str = "document", output_format: str = "text") -> str:
+    def export_comments(
+        self, path: str, scope: str = "document", output_format: str = "text"
+    ) -> str:
         comments = self.list_comments(scope=scope)
         final_path = _normalize_output_path(path)
         output = Path(final_path)
         if output_format == "json":
             output.write_text(_json_dump(comments) + "\n", encoding="utf-8")
         else:
-            lines = [f'[{item["index"]}] {item.get("author") or "Unknown"}: {item.get("text") or ""}' for item in comments]
-            output.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+            lines = [
+                f"[{item['index']}] {item.get('author') or 'Unknown'}: "
+                f"{item.get('text') or ''}"
+                for item in comments
+            ]
+            output.write_text(
+                "\n".join(lines) + ("\n" if lines else ""), encoding="utf-8"
+            )
         return final_path
 
-    def update_fields(self, scope: str = "document") -> Dict[str, int]:
+    def update_fields(self, scope: str = "document") -> dict[str, int]:
         try:
             if scope == "selection":
                 fields = self.native.Selection.Range.Fields
@@ -548,22 +616,45 @@ class WordClient:
             field_count = _safe_getattr(fields, "Count", 0) or 0
             fields.Update()
             toc_count = 0
-            for toc in _iter_collection(_safe_getattr(document, "TablesOfContents", None)):
+            for toc in _iter_collection(
+                _safe_getattr(document, "TablesOfContents", None)
+            ):
                 toc_count += 1
                 toc.Update()
             return {"fields": field_count, "tables_of_contents": toc_count}
         except com_error as error:
-            raise WordAPIError(f"Update fields failed: {_com_error_message(error)}") from error
+            raise WordAPIError(
+                f"Update fields failed: {_com_error_message(error)}"
+            ) from error
 
-    def find(self, text: str, scope: str = "document", match_case: bool = False, whole_word: bool = False) -> List[Dict[str, Any]]:
+    def find(
+        self,
+        text: str,
+        scope: str = "document",
+        match_case: bool = False,
+        whole_word: bool = False,
+    ) -> list[dict[str, Any]]:
         try:
             search_range = self._active_range(scope)
             end_limit = _safe_getattr(search_range, "End", 0) or 0
             results = []
-            while search_range.Find.Execute(FindText=text, MatchCase=match_case, MatchWholeWord=whole_word, Forward=True, Wrap=_resolve_constant("wdFindStop"), Format=False):
+            while search_range.Find.Execute(
+                FindText=text,
+                MatchCase=match_case,
+                MatchWholeWord=whole_word,
+                Forward=True,
+                Wrap=_resolve_constant("wdFindStop"),
+                Format=False,
+            ):
                 start = _safe_getattr(search_range, "Start", 0) or 0
                 end = _safe_getattr(search_range, "End", 0) or 0
-                results.append({"start": start, "end": end, "text": _safe_getattr(search_range, "Text", None)})
+                results.append(
+                    {
+                        "start": start,
+                        "end": end,
+                        "text": _safe_getattr(search_range, "Text", None),
+                    }
+                )
                 if end <= start or end >= end_limit:
                     break
                 search_range.SetRange(end, end_limit)
@@ -571,76 +662,142 @@ class WordClient:
         except com_error as error:
             raise WordAPIError(f"Find failed: {_com_error_message(error)}") from error
 
-    def replace(self, find_text: str, replace_with: str, scope: str = "document", match_case: bool = False, whole_word: bool = False) -> int:
+    def replace(
+        self,
+        find_text: str,
+        replace_with: str,
+        scope: str = "document",
+        match_case: bool = False,
+        whole_word: bool = False,
+    ) -> int:
         try:
-            matches = self.find(find_text, scope=scope, match_case=match_case, whole_word=whole_word)
+            matches = self.find(
+                find_text, scope=scope, match_case=match_case, whole_word=whole_word
+            )
             replace_range = self._active_range(scope)
-            replace_range.Find.Execute(FindText=find_text, ReplaceWith=replace_with, MatchCase=match_case, MatchWholeWord=whole_word, Forward=True, Wrap=_resolve_constant("wdFindStop"), Format=False, Replace=_resolve_constant("wdReplaceAll"))
+            replace_range.Find.Execute(
+                FindText=find_text,
+                ReplaceWith=replace_with,
+                MatchCase=match_case,
+                MatchWholeWord=whole_word,
+                Forward=True,
+                Wrap=_resolve_constant("wdFindStop"),
+                Format=False,
+                Replace=_resolve_constant("wdReplaceAll"),
+            )
             return len(matches)
         except com_error as error:
-            raise WordAPIError(f"Replace failed: {_com_error_message(error)}") from error
+            raise WordAPIError(
+                f"Replace failed: {_com_error_message(error)}"
+            ) from error
 
-    def list_properties(self, kind: str = "all") -> List[Dict[str, Any]]:
+    def list_properties(self, kind: str = "all") -> list[dict[str, Any]]:
         try:
             document = self.active_document.native
             results = []
             if kind in {"all", "built-in"}:
-                for item in _iter_collection(document.BuiltInDocumentProperties):
-                    results.append({"kind": "built-in", "name": _safe_getattr(item, "Name", None), "value": _safe_getattr(item, "Value", None)})
+                results.extend(
+                    {
+                        "kind": "built-in",
+                        "name": _safe_getattr(item, "Name", None),
+                        "value": _safe_getattr(item, "Value", None),
+                    }
+                    for item in _iter_collection(document.BuiltInDocumentProperties)
+                )
             if kind in {"all", "custom"}:
-                for item in _iter_collection(document.CustomDocumentProperties):
-                    results.append({"kind": "custom", "name": _safe_getattr(item, "Name", None), "value": _safe_getattr(item, "Value", None)})
+                results.extend(
+                    {
+                        "kind": "custom",
+                        "name": _safe_getattr(item, "Name", None),
+                        "value": _safe_getattr(item, "Value", None),
+                    }
+                    for item in _iter_collection(document.CustomDocumentProperties)
+                )
             return results
         except com_error as error:
-            raise WordAPIError(f"List properties failed: {_com_error_message(error)}") from error
+            raise WordAPIError(
+                f"List properties failed: {_com_error_message(error)}"
+            ) from error
 
-    def get_property(self, name: str) -> Dict[str, Any]:
+    def get_property(self, name: str) -> dict[str, Any]:
         document = self.active_document.native
-        for kind, collection in (("built-in", document.BuiltInDocumentProperties), ("custom", document.CustomDocumentProperties)):
+        for kind, collection in (
+            ("built-in", document.BuiltInDocumentProperties),
+            ("custom", document.CustomDocumentProperties),
+        ):
             try:
                 item = self._get_property_from_collection(collection, name)
-                return {"kind": kind, "name": _safe_getattr(item, "Name", name), "value": _safe_getattr(item, "Value", None)}
-            except WordAPIError:
+                return {
+                    "kind": kind,
+                    "name": _safe_getattr(item, "Name", name),
+                    "value": _safe_getattr(item, "Value", None),
+                }
+            except WordAPIError:  # noqa: PERF203 - try the next property collection
                 continue
         raise WordAPIError(f'Property "{name}" not found.')
 
-    def set_property(self, name: str, value: Any) -> Dict[str, Any]:
+    def set_property(self, name: str, value: Any) -> dict[str, Any]:
         document = self.active_document.native
-        for kind, collection in (("built-in", document.BuiltInDocumentProperties), ("custom", document.CustomDocumentProperties)):
+        for kind, collection in (
+            ("built-in", document.BuiltInDocumentProperties),
+            ("custom", document.CustomDocumentProperties),
+        ):
             try:
                 item = self._get_property_from_collection(collection, name)
                 item.Value = value
-                return {"kind": kind, "name": _safe_getattr(item, "Name", name), "value": _safe_getattr(item, "Value", value)}
-            except WordAPIError:
+                return {
+                    "kind": kind,
+                    "name": _safe_getattr(item, "Name", name),
+                    "value": _safe_getattr(item, "Value", value),
+                }
+            except WordAPIError:  # noqa: PERF203 - try the next property collection
                 continue
         try:
-            document.CustomDocumentProperties.Add(Name=name, LinkToContent=False, Type=_guess_property_type(value), Value=value)
+            document.CustomDocumentProperties.Add(
+                Name=name,
+                LinkToContent=False,
+                Type=_guess_property_type(value),
+                Value=value,
+            )
         except com_error as error:
-            raise WordAPIError(f"Set property failed: {_com_error_message(error)}") from error
+            raise WordAPIError(
+                f"Set property failed: {_com_error_message(error)}"
+            ) from error
         return self.get_property(name)
 
     def delete_property(self, name: str) -> bool:
         document = self.active_document.native
         try:
-            item = self._get_property_from_collection(document.CustomDocumentProperties, name)
+            item = self._get_property_from_collection(
+                document.CustomDocumentProperties, name
+            )
             item.Delete()
             return True
         except WordAPIError as error:
             raise WordAPIError(f'Custom property "{name}" not found.') from error
         except com_error as error:
-            raise WordAPIError(f"Delete property failed: {_com_error_message(error)}") from error
+            raise WordAPIError(
+                f"Delete property failed: {_com_error_message(error)}"
+            ) from error
 
-    def statistics(self) -> Dict[str, Optional[int]]:
+    def statistics(self) -> dict[str, int | None]:
         document = self.active_document.native
         stats = {}
-        for key, constant_name in (("pages", "wdStatisticPages"), ("words", "wdStatisticWords"), ("characters", "wdStatisticCharacters"), ("paragraphs", "wdStatisticParagraphs")):
+        for key, constant_name in (
+            ("pages", "wdStatisticPages"),
+            ("words", "wdStatisticWords"),
+            ("characters", "wdStatisticCharacters"),
+            ("paragraphs", "wdStatisticParagraphs"),
+        ):
             try:
-                stats[key] = document.ComputeStatistics(_resolve_constant(constant_name))
-            except Exception:
+                stats[key] = document.ComputeStatistics(
+                    _resolve_constant(constant_name)
+                )
+            except Exception:  # noqa: BLE001, PERF203
                 stats[key] = None
         return stats
 
-    def summary(self) -> Dict[str, Any]:
+    def summary(self) -> dict[str, Any]:
         doc = self.active_document
         native = doc.native
         return {
@@ -649,9 +806,17 @@ class WordClient:
             "saved": doc.saved,
             "read_only": bool(_safe_getattr(native, "ReadOnly", False)),
             "track_changes": bool(_safe_getattr(native, "TrackRevisions", False)),
-            "revisions": _safe_getattr(_safe_getattr(native, "Revisions", None), "Count", 0) or 0,
-            "comments": _safe_getattr(_safe_getattr(native, "Comments", None), "Count", 0) or 0,
-            "template": _safe_getattr(_safe_getattr(native, "AttachedTemplate", None), "FullName", None),
+            "revisions": _safe_getattr(
+                _safe_getattr(native, "Revisions", None), "Count", 0
+            )
+            or 0,
+            "comments": _safe_getattr(
+                _safe_getattr(native, "Comments", None), "Count", 0
+            )
+            or 0,
+            "template": _safe_getattr(
+                _safe_getattr(native, "AttachedTemplate", None), "FullName", None
+            ),
             "author": self._built_in_property_value(native, "Author"),
             "last_author": self._built_in_property_value(native, "Last Author"),
             "created_at": self._built_in_property_value(native, "Creation Date"),
@@ -665,7 +830,9 @@ class WordClient:
         try:
             word.Quit()
         except Exception as error:
-            raise WordAPIError(f"Failed to quit Word: {_com_error_message(error)}") from error
+            raise WordAPIError(
+                f"Failed to quit Word: {_com_error_message(error)}"
+            ) from error
         self._word = None
 
 
@@ -693,7 +860,9 @@ def handle_api_error(func):
 
 
 class CliTemplate(click.Path):
-    def convert(self, value: str, param: Optional[click.Parameter], ctx: Optional[click.Context]) -> str:
+    def convert(
+        self, value: str, param: click.Parameter | None, ctx: click.Context | None
+    ) -> str:
         path_obj = Path(value)
         if not path_obj.is_absolute():
             if path_obj.resolve().exists():
@@ -703,7 +872,9 @@ class CliTemplate(click.Path):
         return super().convert(value, param, ctx)
 
 
-def validate_range(ctx: click.Context, param: click.Parameter, value: Optional[str]) -> Optional[Tuple[int, int]]:
+def validate_range(
+    ctx: click.Context, param: click.Parameter, value: str | None
+) -> tuple[int, int] | None:
     try:
         if value is not None:
             frm, to = map(int, value.split("-", 2))
@@ -711,7 +882,9 @@ def validate_range(ctx: click.Context, param: click.Parameter, value: Optional[s
                 raise ValueError
             return (frm, to)
     except ValueError as error:
-        raise click.BadParameter('Range must be in the format "x-y" where "x" and "y" are positive integers.') from error
+        raise click.BadParameter(
+            'Range must be in the format "x-y" where "x" and "y" are positive integers.'
+        ) from error
     return None
 
 
@@ -723,11 +896,24 @@ def print_version(ctx: click.Context, param: click.Parameter, value: bool) -> No
 
 
 def _scope_option(func):
-    return click.option("--scope", type=click.Choice(["document", "selection"]), default="document", show_default=True, help="Apply the operation to the whole document or the current selection.")(func)
+    return click.option(
+        "--scope",
+        type=click.Choice(["document", "selection"]),
+        default="document",
+        show_default=True,
+        help="Apply the operation to the whole document or the current selection.",
+    )(func)
 
 
 def _format_option(func):
-    return click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text", show_default=True, help="Choose human-readable or machine-readable output.")(func)
+    return click.option(
+        "--format",
+        "output_format",
+        type=click.Choice(["text", "json"]),
+        default="text",
+        show_default=True,
+        help="Choose human-readable or machine-readable output.",
+    )(func)
 
 
 def _emit_data(value: Any, output_format: str) -> None:
@@ -741,25 +927,27 @@ def _document_name(document: Any) -> str:
     return _safe_getattr(document, "name", None) or "<unknown>"
 
 
-def _document_key(document: Any) -> Tuple[str, str]:
+def _document_key(document: Any) -> tuple[str, str]:
     return (_safe_getattr(document, "path", None) or "", _document_name(document))
 
 
-def _com_identity(document: Any) -> Optional[int]:
+def _com_identity(document: Any) -> int | None:
     native = _safe_getattr(document, "native", document)
     oleobj = _safe_getattr(native, "_oleobj_", None)
     if oleobj is None:
         return None
     try:
         return int(oleobj)
-    except Exception:
+    except Exception:  # noqa: BLE001
         try:
             return int(oleobj.GetIUnknown())
-        except Exception:
+        except Exception:  # noqa: BLE001
             return None
 
 
-def _remember_hidden_document(state: Dict[str, Any], document: Any, existing_keys: Iterable[Tuple[str, str]]) -> None:
+def _remember_hidden_document(
+    state: dict[str, Any], document: Any, existing_keys: Iterable[tuple[str, str]]
+) -> None:
     key = _document_key(document)
     if key in set(existing_keys):
         return
@@ -768,13 +956,15 @@ def _remember_hidden_document(state: Dict[str, Any], document: Any, existing_key
         tracked.append(document)
 
 
-def _forget_hidden_document(state: Dict[str, Any], document: Any) -> None:
+def _forget_hidden_document(state: dict[str, Any], document: Any) -> None:
     key = _document_key(document)
     tracked = state.get("auto_close_documents", [])
-    state["auto_close_documents"] = [item for item in tracked if _document_key(item) != key]
+    state["auto_close_documents"] = [
+        item for item in tracked if _document_key(item) != key
+    ]
 
 
-def _close_tracked_hidden_documents(state: Dict[str, Any]) -> None:
+def _close_tracked_hidden_documents(state: dict[str, Any]) -> None:
     tracked = list(state.get("auto_close_documents", []))
     if not tracked:
         return
@@ -784,18 +974,21 @@ def _close_tracked_hidden_documents(state: Dict[str, Any]) -> None:
         click.echo(f'Auto closing hidden document "{_document_name(document)}"')
         try:
             document.close(force=True)
-        except Exception as error:
-            errors.append(f'failed to auto-close hidden document "{_document_name(document)}": {error}')
+        except Exception as error:  # noqa: BLE001
+            errors.append(
+                f'failed to auto-close hidden document "{_document_name(document)}": '
+                f"{error}"
+            )
     state["auto_close_documents"] = []
     try:
         no_documents = client is not None and client.document_count == 0
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001
         errors.append(f"failed to inspect open documents during cleanup: {error}")
         no_documents = False
     if no_documents:
         try:
             client.quit()
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001
             errors.append(f"failed to quit Word during cleanup: {error}")
     for error in errors:
         click.echo(f"Warning: {error}", err=True)
@@ -821,22 +1014,53 @@ def _render_documents(client: WordClient) -> str:
 
 
 class SectionedHelpGroup(click.Group):
-    COMMAND_SECTIONS = {
-        "Documents": ["open", "new", "save", "save-as", "save-copy", "close", "activate", "list-documents"],
+    COMMAND_SECTIONS: ClassVar[dict[str, list[str]]] = {
+        "Documents": [
+            "open",
+            "new",
+            "save",
+            "save-as",
+            "save-copy",
+            "close",
+            "activate",
+            "list-documents",
+        ],
         "Content": ["find", "replace", "update-fields", "print", "export"],
-        "Review": ["track-changes", "accept-revisions", "reject-revisions", "list-comments", "export-comments", "delete-comments"],
-        "Document Data": ["summary", "statistics", "list-properties", "get-property", "set-property", "delete-property"],
+        "Review": [
+            "track-changes",
+            "accept-revisions",
+            "reject-revisions",
+            "list-comments",
+            "export-comments",
+            "delete-comments",
+        ],
+        "Document Data": [
+            "summary",
+            "statistics",
+            "list-properties",
+            "get-property",
+            "set-property",
+            "delete-property",
+        ],
     }
 
-    def make_context(self, info_name: Optional[str], args: List[str], parent: Optional[click.Context] = None, **extra: Any) -> click.Context:
+    def make_context(
+        self,
+        info_name: str | None,
+        args: list[str],
+        parent: click.Context | None = None,
+        **extra: Any,
+    ) -> click.Context:
         self._requested_plugin_dirs = ()
         return super().make_context(info_name, args, parent=parent, **extra)
 
-    def set_plugin_dirs(self, plugin_dirs: Tuple[str, ...]) -> None:
+    def set_plugin_dirs(self, plugin_dirs: tuple[str, ...]) -> None:
         self._requested_plugin_dirs = tuple(plugin_dirs)
 
     def _ensure_plugins_loaded(self) -> None:
-        plugin_dirs = tuple(getattr(self, "_requested_plugin_dirs", ())) or _default_plugin_dirs()
+        plugin_dirs = (
+            tuple(getattr(self, "_requested_plugin_dirs", ())) or _default_plugin_dirs()
+        )
         signature = (plugin_dirs,)
         if getattr(self, "_loaded_plugin_signature", None) == signature:
             return
@@ -848,53 +1072,82 @@ class SectionedHelpGroup(click.Group):
             self._load_local_plugins(plugin_dirs)
         self._loaded_plugin_signature = signature
 
-    def list_commands(self, ctx: click.Context) -> List[str]:
+    def list_commands(self, ctx: click.Context) -> list[str]:
         self._ensure_plugins_loaded()
         return super().list_commands(ctx)
 
-    def get_command(self, ctx: click.Context, cmd_name: str) -> Optional[click.Command]:
+    def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
         self._ensure_plugins_loaded()
         return super().get_command(ctx, cmd_name)
 
     def _load_installed_plugins(self) -> None:
         try:
             plugin_eps = _installed_plugin_entry_points()
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001
             click.echo(f"Warning: Failed to discover plugins: {error}", err=True)
             return
         for plugin in plugin_eps:
             try:
                 manifest = _validate_plugin_manifest(plugin.load())
-                for command in _manifest_commands(manifest, fallback_name=getattr(plugin, "name", None)):
-                    self._register_plugin_command(command, manifest["name"], installed=True)
-            except Exception as error:
+                for command in _manifest_commands(
+                    manifest, fallback_name=getattr(plugin, "name", None)
+                ):
+                    self._register_plugin_command(
+                        command, manifest["name"], installed=True
+                    )
+            except Exception as error:  # noqa: BLE001, PERF203
                 plugin_name = getattr(plugin, "name", "<unknown>")
-                click.echo(f"Warning: Failed to load plugin {plugin_name}: {error}", err=True)
+                click.echo(
+                    f"Warning: Failed to load plugin {plugin_name}: {error}", err=True
+                )
 
-    def _load_local_plugins(self, plugin_dirs: Tuple[str, ...]) -> None:
+    def _load_local_plugins(self, plugin_dirs: tuple[str, ...]) -> None:
         for plugin_root in plugin_dirs:
             for plugin_dir in _iter_local_plugin_dirs(plugin_root):
                 try:
-                    for name, target in _read_local_plugin_entry_points(plugin_dir).items():
+                    for name, target in _read_local_plugin_entry_points(
+                        plugin_dir
+                    ).items():
                         manifest = _load_local_plugin_manifest(plugin_dir, target)
                         for command in _manifest_commands(manifest, fallback_name=name):
-                            self._register_plugin_command(command, manifest["name"], installed=False)
-                except Exception as error:
-                    click.echo(f'Warning: Failed to load local plugin {plugin_dir}: {error}', err=True)
+                            self._register_plugin_command(
+                                command, manifest["name"], installed=False
+                            )
+                except Exception as error:  # noqa: BLE001, PERF203
+                    click.echo(
+                        f"Warning: Failed to load local plugin {plugin_dir}: {error}",
+                        err=True,
+                    )
 
-    def _register_plugin_command(self, command: click.Command, plugin_name: str, installed: bool) -> None:
+    def _register_plugin_command(
+        self, command: click.Command, plugin_name: str, installed: bool
+    ) -> None:
         command_name = command.name
         if command_name in self._core_commands:
-            click.echo(f'Warning: Plugin "{plugin_name}" command "{command_name}" conflicts with a core command; skipped.', err=True)
+            click.echo(
+                f'Warning: Plugin "{plugin_name}" command "{command_name}" '
+                "conflicts with a core command; skipped.",
+                err=True,
+            )
             return
         if command_name in self.commands:
             if installed:
-                click.echo(f'Warning: Plugin "{plugin_name}" command "{command_name}" conflicts with an already registered plugin; skipped.', err=True)
+                click.echo(
+                    f'Warning: Plugin "{plugin_name}" command "{command_name}" '
+                    "conflicts with an already registered plugin; skipped.",
+                    err=True,
+                )
                 return
-            click.echo(f'Warning: Local plugin "{plugin_name}" overrides command "{command_name}".', err=True)
+            click.echo(
+                f'Warning: Local plugin "{plugin_name}" overrides '
+                f'command "{command_name}".',
+                err=True,
+            )
         self.add_command(command)
 
-    def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+    def format_commands(
+        self, ctx: click.Context, formatter: click.HelpFormatter
+    ) -> None:
         commands = []
         for subcommand_name in self.list_commands(ctx):
             command = self.get_command(ctx, subcommand_name)
@@ -912,37 +1165,42 @@ class SectionedHelpGroup(click.Group):
                 with formatter.section(section_name):
                     formatter.write_dl(rows)
         if remaining:
-            plugin_rows = [(name, command.get_short_help_str()) for name, command in sorted(remaining.items(), key=lambda item: item[0])]
+            plugin_rows = [
+                (name, command.get_short_help_str())
+                for name, command in sorted(remaining.items(), key=lambda item: item[0])
+            ]
             with formatter.section("Plugins"):
                 formatter.write_dl(plugin_rows)
 
 
-def _configure_plugin_dirs(ctx: click.Context, param: click.Parameter, value: Tuple[str, ...]) -> Tuple[str, ...]:
+def _configure_plugin_dirs(
+    ctx: click.Context, param: click.Parameter, value: tuple[str, ...]
+) -> tuple[str, ...]:
     ctx.ensure_object(dict)["plugin_dirs"] = value
     if isinstance(ctx.command, SectionedHelpGroup):
         ctx.command.set_plugin_dirs(value)
     return value
 
 
-def _default_plugin_dirs() -> Tuple[str, ...]:
+def _default_plugin_dirs() -> tuple[str, ...]:
     plugin_root = Path(__file__).resolve().with_name("plugins")
     if plugin_root.is_dir():
         return (str(plugin_root),)
     return ()
 
 
-def _iter_local_plugin_dirs(plugin_root: str) -> List[Path]:
+def _iter_local_plugin_dirs(plugin_root: str) -> list[Path]:
     root = Path(plugin_root)
     if (root / "pyproject.toml").is_file():
         return [root]
-    plugin_dirs = []
-    for child in sorted(root.iterdir(), key=lambda item: item.name.lower()):
-        if child.is_dir() and (child / "pyproject.toml").is_file():
-            plugin_dirs.append(child)
-    return plugin_dirs
+    return [
+        child
+        for child in sorted(root.iterdir(), key=lambda item: item.name.lower())
+        if child.is_dir() and (child / "pyproject.toml").is_file()
+    ]
 
 
-def _read_local_plugin_entry_points(plugin_dir: Path) -> Dict[str, str]:
+def _read_local_plugin_entry_points(plugin_dir: Path) -> dict[str, str]:
     with (plugin_dir / "pyproject.toml").open("rb") as config_file:
         config = tomllib.load(config_file)
     project = config.get("project", {})
@@ -967,7 +1225,7 @@ def _load_module_attribute(plugin_dir: Path, target: str) -> Any:
     return getattr(module, attribute_name)
 
 
-def _validate_plugin_manifest(manifest: Any) -> Dict[str, Any]:
+def _validate_plugin_manifest(manifest: Any) -> dict[str, Any]:  # noqa: PLR0912 - validation branches map manifest errors directly
     if not isinstance(manifest, dict):
         raise WordAPIError("Plugin manifest must be a dict.")
     plugin_name = manifest.get("name")
@@ -986,19 +1244,28 @@ def _validate_plugin_manifest(manifest: Any) -> Dict[str, Any]:
         if not isinstance(command_name, str) or not command_name:
             raise WordAPIError(f'Plugin "{plugin_name}" has an invalid command name.')
         if not isinstance(extra_command, click.Command):
-            raise WordAPIError(f'Plugin "{plugin_name}" command "{command_name}" is not a Click command.')
+            raise WordAPIError(
+                f'Plugin "{plugin_name}" command "{command_name}" is not a '
+                "Click command."
+            )
         validated_commands[command_name] = extra_command
     client_methods = manifest.get("client_methods")
     if client_methods is None:
         client_methods = {}
     if not isinstance(client_methods, dict):
-        raise WordAPIError(f'Plugin "{plugin_name}" has an invalid "client_methods" mapping.')
+        raise WordAPIError(
+            f'Plugin "{plugin_name}" has an invalid "client_methods" mapping.'
+        )
     validated_methods = {}
     for method_name, func in client_methods.items():
         if not isinstance(method_name, str) or not method_name:
-            raise WordAPIError(f'Plugin "{plugin_name}" has an invalid client method name.')
+            raise WordAPIError(
+                f'Plugin "{plugin_name}" has an invalid client method name.'
+            )
         if not callable(func):
-            raise WordAPIError(f'Plugin "{plugin_name}" method "{method_name}" is not callable.')
+            raise WordAPIError(
+                f'Plugin "{plugin_name}" method "{method_name}" is not callable.'
+            )
         validated_methods[method_name] = func
     return {
         "name": plugin_name,
@@ -1008,11 +1275,13 @@ def _validate_plugin_manifest(manifest: Any) -> Dict[str, Any]:
     }
 
 
-def _load_local_plugin_manifest(plugin_dir: Path, target: str) -> Dict[str, Any]:
+def _load_local_plugin_manifest(plugin_dir: Path, target: str) -> dict[str, Any]:
     return _validate_plugin_manifest(_load_module_attribute(plugin_dir, target))
 
 
-def _manifest_commands(manifest: Dict[str, Any], fallback_name: Optional[str] = None) -> List[click.Command]:
+def _manifest_commands(
+    manifest: dict[str, Any], fallback_name: str | None = None
+) -> list[click.Command]:
     commands = []
     command = manifest.get("command")
     if isinstance(command, click.Command):
@@ -1026,20 +1295,28 @@ def _manifest_commands(manifest: Dict[str, Any], fallback_name: Optional[str] = 
     return commands
 
 
-def _load_local_plugin_commands(plugin_dir: Path, plugin_name: str, target: str) -> List[click.Command]:
+def _load_local_plugin_commands(
+    plugin_dir: Path, plugin_name: str, target: str
+) -> list[click.Command]:
     manifest = _load_local_plugin_manifest(plugin_dir, target)
     commands = _manifest_commands(manifest, fallback_name=plugin_name)
     if not commands:
-        raise TypeError(f'Plugin "{manifest["name"]}" did not provide any Click commands')
+        raise TypeError(
+            f'Plugin "{manifest["name"]}" did not provide any Click commands'
+        )
     return commands
 
 
 def _installed_plugin_entry_points() -> Iterable[Any]:
     eps = entry_points()
-    return eps.get("msw.plugin", []) if sys.version_info < (3, 10) else eps.select(group="msw.plugin")
+    return (
+        eps.get("msw.plugin", [])
+        if sys.version_info < (3, 10)
+        else eps.select(group="msw.plugin")
+    )
 
 
-def _discover_plugin_manifests(plugin_dirs: Sequence[str] = ()) -> List[Dict[str, Any]]:
+def _discover_plugin_manifests(plugin_dirs: Sequence[str] = ()) -> list[dict[str, Any]]:
     manifests_by_name = {}
     try:
         plugin_eps = _installed_plugin_entry_points()
@@ -1049,9 +1326,10 @@ def _discover_plugin_manifests(plugin_dirs: Sequence[str] = ()) -> List[Dict[str
         for plugin in plugin_eps:
             try:
                 manifest = _validate_plugin_manifest(plugin.load())
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001
                 warnings.warn(
-                    f'Failed to load plugin {getattr(plugin, "name", "<unknown>")}: {error}',
+                    f"Failed to load plugin {getattr(plugin, 'name', '<unknown>')}: "
+                    f"{error}",
                     RuntimeWarning,
                     stacklevel=2,
                 )
@@ -1065,19 +1343,19 @@ def _discover_plugin_manifests(plugin_dirs: Sequence[str] = ()) -> List[Dict[str
         for plugin_dir in _iter_local_plugin_dirs(plugin_root):
             try:
                 local_entries = _read_local_plugin_entry_points(plugin_dir)
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001
                 warnings.warn(
-                    f'Failed to read local plugin {plugin_dir}: {error}',
+                    f"Failed to read local plugin {plugin_dir}: {error}",
                     RuntimeWarning,
                     stacklevel=2,
                 )
                 continue
-            for _, target in local_entries.items():
+            for target in local_entries.values():
                 try:
                     manifest = _load_local_plugin_manifest(plugin_dir, target)
-                except Exception as error:
+                except Exception as error:  # noqa: BLE001
                     warnings.warn(
-                        f'Failed to load local plugin {plugin_dir}: {error}',
+                        f"Failed to load local plugin {plugin_dir}: {error}",
                         RuntimeWarning,
                         stacklevel=2,
                     )
@@ -1087,8 +1365,22 @@ def _discover_plugin_manifests(plugin_dirs: Sequence[str] = ()) -> List[Dict[str
 
 
 @click.group(chain=True, cls=SectionedHelpGroup)
-@click.option("--version", is_flag=True, callback=print_version, expose_value=False, is_eager=True)
-@click.option("--plugin-dir", "plugin_dirs", multiple=True, type=click.Path(exists=True, file_okay=False, resolve_path=True), callback=_configure_plugin_dirs, expose_value=False, is_eager=True, help="Load plugins from a local plugin root. Overrides installed plugins with the same command name.")
+@click.option(
+    "--version", is_flag=True, callback=print_version, expose_value=False, is_eager=True
+)
+@click.option(
+    "--plugin-dir",
+    "plugin_dirs",
+    multiple=True,
+    type=click.Path(exists=True, file_okay=False, resolve_path=True),
+    callback=_configure_plugin_dirs,
+    expose_value=False,
+    is_eager=True,
+    help=(
+        "Load plugins from a local plugin root. Overrides installed plugins "
+        "with the same command name."
+    ),
+)
 @click.pass_context
 def cli(ctx: click.Context) -> None:
     """Command line interface for Microsoft Word."""
@@ -1097,14 +1389,27 @@ def cli(ctx: click.Context) -> None:
     ctx.call_on_close(lambda: _close_tracked_hidden_documents(state))
 
 
-@cli.command("open", short_help="Open a document.", help="Open an existing document and make it active.")
+@cli.command(
+    "open",
+    short_help="Open a document.",
+    help="Open an existing document and make it active.",
+)
 @click.argument("path", type=click.Path(exists=True, resolve_path=True))
 @click.option("--show/--hide", default=True, help="Display or hide the document.")
-@click.option("--readonly", "read_only", is_flag=True, help="Open without write access when Word supports it.")
-@click.option("--repair", is_flag=True, help="Ask Word to repair the document while opening it.")
+@click.option(
+    "--readonly",
+    "read_only",
+    is_flag=True,
+    help="Open without write access when Word supports it.",
+)
+@click.option(
+    "--repair", is_flag=True, help="Ask Word to repair the document while opening it."
+)
 @handle_api_error
 @click.pass_context
-def open_cmd(ctx: click.Context, path: str, show: bool, read_only: bool, repair: bool) -> None:
+def open_cmd(
+    ctx: click.Context, path: str, show: bool, read_only: bool, repair: bool
+) -> None:
     click.echo(f'Opening document at "{path}"')
     client = get_client()
     state = ctx.find_root().ensure_object(dict)
@@ -1115,13 +1420,26 @@ def open_cmd(ctx: click.Context, path: str, show: bool, read_only: bool, repair:
         _remember_hidden_document(state, document, existing_keys)
 
 
-@cli.command("new", short_help="Create a new document.", help="Create a new document, optionally from a template.")
-@click.option("-t", "--template", type=CliTemplate(exists=True, dir_okay=False, resolve_path=True), help="Path to a Word template file.")
+@cli.command(
+    "new",
+    short_help="Create a new document.",
+    help="Create a new document, optionally from a template.",
+)
+@click.option(
+    "-t",
+    "--template",
+    type=CliTemplate(exists=True, dir_okay=False, resolve_path=True),
+    help="Path to a Word template file.",
+)
 @click.option("--show/--hide", default=True, help="Display or hide the document.")
 @handle_api_error
 @click.pass_context
-def new_cmd(ctx: click.Context, template: Optional[str], show: bool) -> None:
-    click.echo(f'Opening new document using template: "{template}"' if template else "Opening new blank document.")
+def new_cmd(ctx: click.Context, template: str | None, show: bool) -> None:
+    click.echo(
+        f'Opening new document using template: "{template}"'
+        if template
+        else "Opening new blank document."
+    )
     client = get_client()
     state = ctx.find_root().ensure_object(dict)
     state["client"] = client
@@ -1144,54 +1462,234 @@ PRINT_OUT_ITEMS = {
 }
 
 
-@cli.command("print", short_help="Print the active document.", help="Print the active document.")
-@click.option("-c", "--copies", type=click.IntRange(min=1), default=1, help="Number of copies to print.")
-@click.option("-p", "--pages", type=str, help="Specific pages or page ranges, for example 2-4, 6.")
-@click.option("--even", "pagetype", flag_value="wdPrintEvenPagesOnly", help="Print even-numbered pages only.")
-@click.option("--odd", "pagetype", flag_value="wdPrintOddPagesOnly", help="Print odd-numbered pages only.")
-@click.option("--current-page", "rng", flag_value="wdPrintCurrentPage", help="Print only the current page.")
-@click.option("--selection", "rng", flag_value="wdPrintSelection", help="Print only the current selection.")
-@click.option("--no-collate", is_flag=True, help="Disable collation when printing multiple copies.")
-@click.option("--to-file", type=click.Path(dir_okay=False, resolve_path=True), help="Print to a file instead of a printer.")
-@click.option("--append", is_flag=True, help="Append to the output file when supported.")
-@click.option("--columns", type=click.Choice(["1", "2", "3", "4"]), default="1", help="Pages across each row.")
-@click.option("--rows", type=click.Choice(["1", "2", "4"]), default="1", help="Pages down each column.")
-@click.option("--item", type=click.Choice(list(PRINT_OUT_ITEMS.keys())), default="document_content", help="Select which document content Word should print.")
+@cli.command(
+    "print", short_help="Print the active document.", help="Print the active document."
+)
+@click.option(
+    "-c",
+    "--copies",
+    type=click.IntRange(min=1),
+    default=1,
+    help="Number of copies to print.",
+)
+@click.option(
+    "-p", "--pages", type=str, help="Specific pages or page ranges, for example 2-4, 6."
+)
+@click.option(
+    "--even",
+    "pagetype",
+    flag_value="wdPrintEvenPagesOnly",
+    help="Print even-numbered pages only.",
+)
+@click.option(
+    "--odd",
+    "pagetype",
+    flag_value="wdPrintOddPagesOnly",
+    help="Print odd-numbered pages only.",
+)
+@click.option(
+    "--current-page",
+    "rng",
+    flag_value="wdPrintCurrentPage",
+    help="Print only the current page.",
+)
+@click.option(
+    "--selection",
+    "rng",
+    flag_value="wdPrintSelection",
+    help="Print only the current selection.",
+)
+@click.option(
+    "--no-collate",
+    is_flag=True,
+    help="Disable collation when printing multiple copies.",
+)
+@click.option(
+    "--to-file",
+    type=click.Path(dir_okay=False, resolve_path=True),
+    help="Print to a file instead of a printer.",
+)
+@click.option(
+    "--append", is_flag=True, help="Append to the output file when supported."
+)
+@click.option(
+    "--columns",
+    type=click.Choice(["1", "2", "3", "4"]),
+    default="1",
+    help="Pages across each row.",
+)
+@click.option(
+    "--rows",
+    type=click.Choice(["1", "2", "4"]),
+    default="1",
+    help="Pages down each column.",
+)
+@click.option(
+    "--item",
+    type=click.Choice(list(PRINT_OUT_ITEMS.keys())),
+    default="document_content",
+    help="Select which document content Word should print.",
+)
 @handle_api_error
-def print_cmd(copies: int, pages: Optional[str], pagetype: Any, rng: Any, item: str, no_collate: bool, to_file: Optional[str], append: bool, columns: str, rows: str) -> None:
+def print_cmd(  # noqa: PLR0913, PLR0917
+    copies: int,
+    pages: str | None,
+    pagetype: Any,
+    rng: Any,
+    item: str,
+    no_collate: bool,
+    to_file: str | None,
+    append: bool,
+    columns: str,
+    rows: str,
+) -> None:
     click.echo(f"Printing {copies} copies of pages: {pages or 'all'}")
     doc = get_client().active_document
-    doc.print_out(copies=copies, pages=pages, pagetype=_resolve_constant(pagetype or "wdPrintAllPages"), rng=_resolve_constant(rng or "wdPrintAllDocument"), item=_resolve_constant(PRINT_OUT_ITEMS[item]), no_collate=no_collate, to_file=to_file, append=append, columns=int(columns), rows=int(rows))
+    doc.print_out(
+        copies=copies,
+        pages=pages,
+        pagetype=_resolve_constant(pagetype or "wdPrintAllPages"),
+        rng=_resolve_constant(rng or "wdPrintAllDocument"),
+        item=_resolve_constant(PRINT_OUT_ITEMS[item]),
+        no_collate=no_collate,
+        to_file=to_file,
+        append=append,
+        columns=int(columns),
+        rows=int(rows),
+    )
 
 
-@cli.command("export", short_help="Export to PDF or XPS.", help="Export the active document to PDF or XPS.")
-@click.option("--pdf", "format_val", flag_value="wdExportFormatPDF", default=True, help="Export as PDF.")
-@click.option("--xps", "format_val", flag_value="wdExportFormatXPS", help="Export as XPS.")
+@cli.command(
+    "export",
+    short_help="Export to PDF or XPS.",
+    help="Export the active document to PDF or XPS.",
+)
+@click.option(
+    "--pdf",
+    "format_val",
+    flag_value="wdExportFormatPDF",
+    default=True,
+    help="Export as PDF.",
+)
+@click.option(
+    "--xps", "format_val", flag_value="wdExportFormatXPS", help="Export as XPS."
+)
 @click.option("--show", is_flag=True, help="Open the exported file after creating it.")
-@click.option("--for-print", "optimize", flag_value="wdExportOptimizeForPrint", default=True, help="Optimize the export for printing.")
-@click.option("--for-screen", "optimize", flag_value="wdExportOptimizeForOnScreen", help="Optimize for on-screen viewing.")
-@click.option("--pages", type=str, callback=validate_range, help="Export only a page range in the form x-y.")
-@click.option("--current-page", "rng", flag_value="wdExportCurrentPage", help="Export only the current page.")
-@click.option("--selection", "rng", flag_value="wdExportSelection", help="Export only the current selection.")
-@click.option("--with-markup", "markup", is_flag=True, help="Include tracked changes and markup.")
-@click.option("--with-properties", "properties", is_flag=True, help="Include document properties.")
-@click.option("--without-irm", "irm", is_flag=True, help="Do not preserve IRM permissions in the export.")
-@click.option("--with-heading-bookmarks", "bookmarks", flag_value="wdExportCreateHeadingBookmarks", help="Create bookmarks from headings.")
-@click.option("--with-word-bookmarks", "bookmarks", flag_value="wdExportCreateWordBookmarks", help="Create bookmarks from Word bookmarks.")
-@click.option("--without-structure-tags", "struct", is_flag=True, help="Disable document structure tags in the export.")
-@click.option("--without-bitmap-fonts", "bitmap", is_flag=True, help="Disable bitmap fallback for missing fonts.")
-@click.option("--pdf-a", "useiso19005_1", is_flag=True, help="Create a PDF/A-compatible export.")
+@click.option(
+    "--for-print",
+    "optimize",
+    flag_value="wdExportOptimizeForPrint",
+    default=True,
+    help="Optimize the export for printing.",
+)
+@click.option(
+    "--for-screen",
+    "optimize",
+    flag_value="wdExportOptimizeForOnScreen",
+    help="Optimize for on-screen viewing.",
+)
+@click.option(
+    "--pages",
+    type=str,
+    callback=validate_range,
+    help="Export only a page range in the form x-y.",
+)
+@click.option(
+    "--current-page",
+    "rng",
+    flag_value="wdExportCurrentPage",
+    help="Export only the current page.",
+)
+@click.option(
+    "--selection",
+    "rng",
+    flag_value="wdExportSelection",
+    help="Export only the current selection.",
+)
+@click.option(
+    "--with-markup", "markup", is_flag=True, help="Include tracked changes and markup."
+)
+@click.option(
+    "--with-properties", "properties", is_flag=True, help="Include document properties."
+)
+@click.option(
+    "--without-irm",
+    "irm",
+    is_flag=True,
+    help="Do not preserve IRM permissions in the export.",
+)
+@click.option(
+    "--with-heading-bookmarks",
+    "bookmarks",
+    flag_value="wdExportCreateHeadingBookmarks",
+    help="Create bookmarks from headings.",
+)
+@click.option(
+    "--with-word-bookmarks",
+    "bookmarks",
+    flag_value="wdExportCreateWordBookmarks",
+    help="Create bookmarks from Word bookmarks.",
+)
+@click.option(
+    "--without-structure-tags",
+    "struct",
+    is_flag=True,
+    help="Disable document structure tags in the export.",
+)
+@click.option(
+    "--without-bitmap-fonts",
+    "bitmap",
+    is_flag=True,
+    help="Disable bitmap fallback for missing fonts.",
+)
+@click.option(
+    "--pdf-a", "useiso19005_1", is_flag=True, help="Create a PDF/A-compatible export."
+)
 @click.argument("path", type=click.Path(dir_okay=True, resolve_path=True))
 @handle_api_error
-def export_cmd(path: str, format_val: Any, show: bool, optimize: Any, pages: Optional[Tuple[int, int]], rng: Any, markup: bool, properties: bool, irm: bool, bookmarks: Any, struct: bool, bitmap: bool, useiso19005_1: bool) -> None:
+def export_cmd(  # noqa: PLR0913, PLR0917
+    path: str,
+    format_val: Any,
+    show: bool,
+    optimize: Any,
+    pages: tuple[int, int] | None,
+    rng: Any,
+    markup: bool,
+    properties: bool,
+    irm: bool,
+    bookmarks: Any,
+    struct: bool,
+    bitmap: bool,
+    useiso19005_1: bool,
+) -> None:
     doc = get_client().active_document
-    final_path = doc.export_fixed_format(path=path, format_val=_resolve_constant(format_val), show=show, optimize=_resolve_constant(optimize), pages=pages, rng=_resolve_constant(rng) if rng else None, markup=markup, properties=properties, irm=irm, bookmarks=_resolve_constant(bookmarks or "wdExportCreateNoBookmarks"), struct=struct, bitmap=bitmap, useiso19005_1=useiso19005_1)
+    final_path = doc.export_fixed_format(
+        path=path,
+        format_val=_resolve_constant(format_val),
+        show=show,
+        optimize=_resolve_constant(optimize),
+        pages=pages,
+        rng=_resolve_constant(rng) if rng else None,
+        markup=markup,
+        properties=properties,
+        irm=irm,
+        bookmarks=_resolve_constant(bookmarks or "wdExportCreateNoBookmarks"),
+        struct=struct,
+        bitmap=bitmap,
+        useiso19005_1=useiso19005_1,
+    )
     click.echo(f'Exported to "{final_path}"')
 
 
-@cli.command("save", short_help="Save current changes.", help="Save the active document or all open documents.")
+@cli.command(
+    "save",
+    short_help="Save current changes.",
+    help="Save the active document or all open documents.",
+)
 @click.option("-a", "--all", "save_all", is_flag=True, help="Save all open documents.")
-@click.option("-f", "--force", is_flag=True, help="Save without prompting when Word supports it.")
+@click.option(
+    "-f", "--force", is_flag=True, help="Save without prompting when Word supports it."
+)
 @handle_api_error
 def save_cmd(save_all: bool, force: bool) -> None:
     client = get_client()
@@ -1201,7 +1699,11 @@ def save_cmd(save_all: bool, force: bool) -> None:
         document.save(force=force)
 
 
-@cli.command("save-copy", short_help="Save a copy without switching the active document.", help="Save a copy of the active document without changing the original.")
+@cli.command(
+    "save-copy",
+    short_help="Save a copy without switching the active document.",
+    help="Save a copy of the active document without changing the original.",
+)
 @click.argument("path", type=click.Path(resolve_path=True))
 @handle_api_error
 def save_copy_cmd(path: str) -> None:
@@ -1209,9 +1711,17 @@ def save_copy_cmd(path: str) -> None:
     click.echo(f'Saved copy to "{final_path}"')
 
 
-@cli.command("close", short_help="Close documents.", help="Close the active document or all open documents.")
-@click.option("-a", "--all", "close_all", is_flag=True, help="Close all open documents.")
-@click.option("-f", "--force", is_flag=True, help="Discard unsaved changes without prompting.")
+@cli.command(
+    "close",
+    short_help="Close documents.",
+    help="Close the active document or all open documents.",
+)
+@click.option(
+    "-a", "--all", "close_all", is_flag=True, help="Close all open documents."
+)
+@click.option(
+    "-f", "--force", is_flag=True, help="Discard unsaved changes without prompting."
+)
 @handle_api_error
 @click.pass_context
 def close_cmd(ctx: click.Context, close_all: bool, force: bool) -> None:
@@ -1228,7 +1738,11 @@ def close_cmd(ctx: click.Context, close_all: bool, force: bool) -> None:
         client.quit()
 
 
-@cli.command("activate", short_help="Activate an open document by index.", help="Activate an open document by its index from the list-documents output.")
+@cli.command(
+    "activate",
+    short_help="Activate an open document by index.",
+    help="Activate an open document by its index from the list-documents output.",
+)
 @click.argument("index", type=int)
 @handle_api_error
 def activate_cmd(index: int) -> None:
@@ -1240,11 +1754,14 @@ def activate_cmd(index: int) -> None:
     raise click.ClickException(f"Index {index} out of range.")
 
 
-@cli.command("list-documents", short_help="List open documents.", help="List open documents and show which one is active.")
+@cli.command(
+    "list-documents",
+    short_help="List open documents.",
+    help="List open documents and show which one is active.",
+)
 @handle_api_error
 def list_documents_cmd() -> None:
     click.echo(_render_documents(get_client()))
-
 
 
 @cli.command("find", short_help="Find text.", help="Find text in the active document.")
@@ -1254,8 +1771,12 @@ def list_documents_cmd() -> None:
 @click.option("--whole-word", is_flag=True, help="Match whole words only.")
 @_format_option
 @handle_api_error
-def find_cmd(text: str, scope: str, match_case: bool, whole_word: bool, output_format: str) -> None:
-    matches = get_client().find(text, scope=scope, match_case=match_case, whole_word=whole_word)
+def find_cmd(
+    text: str, scope: str, match_case: bool, whole_word: bool, output_format: str
+) -> None:
+    matches = get_client().find(
+        text, scope=scope, match_case=match_case, whole_word=whole_word
+    )
     if output_format == "json":
         _emit_data(matches, output_format)
         return
@@ -1263,10 +1784,12 @@ def find_cmd(text: str, scope: str, match_case: bool, whole_word: bool, output_f
         click.echo("No matches found.")
         return
     for match in matches:
-        click.echo(f'[{match["start"]}:{match["end"]}] {match["text"]}')
+        click.echo(f"[{match['start']}:{match['end']}] {match['text']}")
 
 
-@cli.command("replace", short_help="Replace text.", help="Replace text in the active document.")
+@cli.command(
+    "replace", short_help="Replace text.", help="Replace text in the active document."
+)
 @click.argument("find_text")
 @click.argument("replace_with")
 @_scope_option
@@ -1274,43 +1797,86 @@ def find_cmd(text: str, scope: str, match_case: bool, whole_word: bool, output_f
 @click.option("--whole-word", is_flag=True, help="Match whole words only.")
 @_format_option
 @handle_api_error
-def replace_cmd(find_text: str, replace_with: str, scope: str, match_case: bool, whole_word: bool, output_format: str) -> None:
-    replaced = get_client().replace(find_text, replace_with, scope=scope, match_case=match_case, whole_word=whole_word)
+def replace_cmd(  # noqa: PLR0913, PLR0917
+    find_text: str,
+    replace_with: str,
+    scope: str,
+    match_case: bool,
+    whole_word: bool,
+    output_format: str,
+) -> None:
+    replaced = get_client().replace(
+        find_text,
+        replace_with,
+        scope=scope,
+        match_case=match_case,
+        whole_word=whole_word,
+    )
     payload = {"replaced": replaced}
-    _emit_data(payload, output_format) if output_format == "json" else click.echo(f"Replaced {replaced} occurrence(s).")
+    _emit_data(payload, output_format) if output_format == "json" else click.echo(
+        f"Replaced {replaced} occurrence(s)."
+    )
 
 
-@cli.command("track-changes", short_help="Enable or disable tracked changes.", help="Enable or disable tracked changes on the active document.")
-@click.option("--on/--off", "enabled", default=True, show_default=True, help="Turn tracked changes on or off.")
+@cli.command(
+    "track-changes",
+    short_help="Enable or disable tracked changes.",
+    help="Enable or disable tracked changes on the active document.",
+)
+@click.option(
+    "--on/--off",
+    "enabled",
+    default=True,
+    show_default=True,
+    help="Turn tracked changes on or off.",
+)
 @_format_option
 @handle_api_error
 def track_changes_cmd(enabled: bool, output_format: str) -> None:
     current = get_client().set_track_changes(enabled)
     payload = {"track_changes": current}
-    _emit_data(payload, output_format) if output_format == "json" else click.echo(f'Track changes {"enabled" if current else "disabled"}.')
+    _emit_data(payload, output_format) if output_format == "json" else click.echo(
+        f"Track changes {'enabled' if current else 'disabled'}."
+    )
 
 
-@cli.command("accept-revisions", short_help="Accept revisions.", help="Accept revisions in the active document or selection.")
+@cli.command(
+    "accept-revisions",
+    short_help="Accept revisions.",
+    help="Accept revisions in the active document or selection.",
+)
 @_scope_option
 @_format_option
 @handle_api_error
 def accept_revisions_cmd(scope: str, output_format: str) -> None:
     count = get_client().accept_revisions(scope=scope)
     payload = {"accepted": count, "scope": scope}
-    _emit_data(payload, output_format) if output_format == "json" else click.echo(f"Accepted {count} revision(s).")
+    _emit_data(payload, output_format) if output_format == "json" else click.echo(
+        f"Accepted {count} revision(s)."
+    )
 
 
-@cli.command("reject-revisions", short_help="Reject revisions.", help="Reject revisions in the active document or selection.")
+@cli.command(
+    "reject-revisions",
+    short_help="Reject revisions.",
+    help="Reject revisions in the active document or selection.",
+)
 @_scope_option
 @_format_option
 @handle_api_error
 def reject_revisions_cmd(scope: str, output_format: str) -> None:
     count = get_client().reject_revisions(scope=scope)
     payload = {"rejected": count, "scope": scope}
-    _emit_data(payload, output_format) if output_format == "json" else click.echo(f"Rejected {count} revision(s).")
+    _emit_data(payload, output_format) if output_format == "json" else click.echo(
+        f"Rejected {count} revision(s)."
+    )
 
 
-@cli.command("list-comments", short_help="List comments.", help="List comments in the active document or selection.")
+@cli.command(
+    "list-comments",
+    short_help="List comments.",
+    help="List comments in the active document or selection.",
+)
 @_scope_option
 @_format_option
 @handle_api_error
@@ -1323,31 +1889,58 @@ def list_comments_cmd(scope: str, output_format: str) -> None:
         click.echo("No comments found.")
         return
     for item in comments:
-        click.echo(f'[{item["index"]}] {item.get("author") or "Unknown"}: {item.get("text") or ""}')
+        click.echo(
+            f"[{item['index']}] {item.get('author') or 'Unknown'}: "
+            f"{item.get('text') or ''}"
+        )
 
 
-@cli.command("export-comments", short_help="Export comments.", help="Export comments from the active document or selection.")
+@cli.command(
+    "export-comments",
+    short_help="Export comments.",
+    help="Export comments from the active document or selection.",
+)
 @click.argument("path", type=click.Path(resolve_path=True))
 @_scope_option
-@click.option("--json", "output_format", flag_value="json", help="Export comments as JSON.")
-@click.option("--text", "output_format", flag_value="text", default=True, help="Export comments as plain text.")
+@click.option(
+    "--json", "output_format", flag_value="json", help="Export comments as JSON."
+)
+@click.option(
+    "--text",
+    "output_format",
+    flag_value="text",
+    default=True,
+    help="Export comments as plain text.",
+)
 @handle_api_error
 def export_comments_cmd(path: str, scope: str, output_format: str) -> None:
-    final_path = get_client().export_comments(path, scope=scope, output_format=output_format)
+    final_path = get_client().export_comments(
+        path, scope=scope, output_format=output_format
+    )
     click.echo(f'Exported comments to "{final_path}"')
 
 
-@cli.command("delete-comments", short_help="Delete comments.", help="Delete comments in the active document or selection.")
+@cli.command(
+    "delete-comments",
+    short_help="Delete comments.",
+    help="Delete comments in the active document or selection.",
+)
 @_scope_option
 @_format_option
 @handle_api_error
 def delete_comments_cmd(scope: str, output_format: str) -> None:
     count = get_client().delete_comments(scope=scope)
     payload = {"deleted": count, "scope": scope}
-    _emit_data(payload, output_format) if output_format == "json" else click.echo(f"Deleted {count} comment(s).")
+    _emit_data(payload, output_format) if output_format == "json" else click.echo(
+        f"Deleted {count} comment(s)."
+    )
 
 
-@cli.command("update-fields", short_help="Update fields.", help="Update fields in the active document or selection.")
+@cli.command(
+    "update-fields",
+    short_help="Update fields.",
+    help="Update fields in the active document or selection.",
+)
 @_scope_option
 @_format_option
 @handle_api_error
@@ -1356,10 +1949,21 @@ def update_fields_cmd(scope: str, output_format: str) -> None:
     if output_format == "json":
         _emit_data(result, output_format)
     else:
-        click.echo(f'Updated {result["fields"]} field(s)' + (f' and {result["tables_of_contents"]} table(s) of contents.' if result["tables_of_contents"] else "."))
+        click.echo(
+            f"Updated {result['fields']} field(s)"
+            + (
+                f" and {result['tables_of_contents']} table(s) of contents."
+                if result["tables_of_contents"]
+                else "."
+            )
+        )
 
 
-@cli.command("summary", short_help="Show active document summary.", help="Show active document state plus a small set of common metadata.")
+@cli.command(
+    "summary",
+    short_help="Show active document summary.",
+    help="Show active document state plus a small set of common metadata.",
+)
 @_format_option
 @handle_api_error
 def summary_cmd(output_format: str) -> None:
@@ -1371,7 +1975,11 @@ def summary_cmd(output_format: str) -> None:
         click.echo(f"{key}: {value}")
 
 
-@cli.command("statistics", short_help="Show document statistics.", help="Show page, word, character, and paragraph counts.")
+@cli.command(
+    "statistics",
+    short_help="Show document statistics.",
+    help="Show page, word, character, and paragraph counts.",
+)
 @_format_option
 @handle_api_error
 def statistics_cmd(output_format: str) -> None:
@@ -1383,8 +1991,21 @@ def statistics_cmd(output_format: str) -> None:
         click.echo(f"{key}: {value}")
 
 
-@cli.command("list-properties", short_help="List raw document properties.", help="List built-in and custom Word document properties without curating the output.")
-@click.option("--kind", type=click.Choice(["all", "built-in", "custom"]), default="all", show_default=True, help="Choose which raw property set to inspect.")
+@cli.command(
+    "list-properties",
+    short_help="List raw document properties.",
+    help=(
+        "List built-in and custom Word document properties without curating "
+        "the output."
+    ),
+)
+@click.option(
+    "--kind",
+    type=click.Choice(["all", "built-in", "custom"]),
+    default="all",
+    show_default=True,
+    help="Choose which raw property set to inspect.",
+)
 @_format_option
 @handle_api_error
 def list_properties_cmd(kind: str, output_format: str) -> None:
@@ -1396,37 +2017,55 @@ def list_properties_cmd(kind: str, output_format: str) -> None:
         click.echo("No properties found.")
         return
     for item in properties:
-        click.echo(f'{item["kind"]}: {item["name"]} = {item["value"]}')
+        click.echo(f"{item['kind']}: {item['name']} = {item['value']}")
 
 
-@cli.command("get-property", short_help="Read one raw property.", help="Read one built-in or custom Word document property by name.")
+@cli.command(
+    "get-property",
+    short_help="Read one raw property.",
+    help="Read one built-in or custom Word document property by name.",
+)
 @click.argument("name")
 @_format_option
 @handle_api_error
 def get_property_cmd(name: str, output_format: str) -> None:
     prop = get_client().get_property(name)
-    _emit_data(prop, output_format) if output_format == "json" else click.echo(f'{prop["kind"]}: {prop["name"]} = {prop["value"]}')
+    _emit_data(prop, output_format) if output_format == "json" else click.echo(
+        f"{prop['kind']}: {prop['name']} = {prop['value']}"
+    )
 
 
-@cli.command("set-property", short_help="Write one raw property.", help="Write a built-in or custom Word document property by name.")
+@cli.command(
+    "set-property",
+    short_help="Write one raw property.",
+    help="Write a built-in or custom Word document property by name.",
+)
 @click.argument("name")
 @click.argument("value")
 @_format_option
 @handle_api_error
 def set_property_cmd(name: str, value: str, output_format: str) -> None:
     prop = get_client().set_property(name, _parse_property_value(value))
-    _emit_data(prop, output_format) if output_format == "json" else click.echo(f'Set {prop["kind"]} property {prop["name"]} = {prop["value"]}')
+    _emit_data(prop, output_format) if output_format == "json" else click.echo(
+        f"Set {prop['kind']} property {prop['name']} = {prop['value']}"
+    )
 
 
-@cli.command("delete-property", short_help="Delete one custom raw property.", help="Delete a custom Word document property by name.")
+@cli.command(
+    "delete-property",
+    short_help="Delete one custom raw property.",
+    help="Delete a custom Word document property by name.",
+)
 @click.argument("name")
 @_format_option
 @handle_api_error
 def delete_property_cmd(name: str, output_format: str) -> None:
     get_client().delete_property(name)
     payload = {"deleted": True, "name": name}
-    _emit_data(payload, output_format) if output_format == "json" else click.echo(f'Deleted custom property "{name}".')
+    _emit_data(payload, output_format) if output_format == "json" else click.echo(
+        f'Deleted custom property "{name}".'
+    )
+
 
 if __name__ == "__main__":
     cli()
-

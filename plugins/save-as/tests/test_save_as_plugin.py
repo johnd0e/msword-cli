@@ -250,7 +250,7 @@ def test_plugin_manifest_exposes_cli_and_library_entries(plugin):
 def test_save_as_requires_path_for_save_operation(plugin, command_runtime):
     result = command_runtime.runner.invoke(plugin.save_as_cmd, [])
 
-    assert result.exit_code == 2
+    assert result.exit_code == 2  # noqa: PLR2004
     assert "Missing argument PATH" in result.output
     command_runtime.get_client.assert_not_called()
 
@@ -268,7 +268,7 @@ def test_save_as_list_formats_requires_no_path_and_no_active_document(plugin, co
 def test_save_as_list_formats_rejects_path(plugin, command_runtime, tmp_path):
     result = command_runtime.runner.invoke(plugin.save_as_cmd, ["--list-formats", str(tmp_path / "out.docx")])
 
-    assert result.exit_code == 2
+    assert result.exit_code == 2  # noqa: PLR2004
     assert "Path is not allowed with --list-formats." in result.output
     command_runtime.get_client.assert_not_called()
 
@@ -291,7 +291,7 @@ def test_save_as_list_formats_rejects_path(plugin, command_runtime, tmp_path):
 def test_save_as_list_formats_rejects_format_selection_options(plugin, command_runtime, arguments):
     result = command_runtime.runner.invoke(plugin.save_as_cmd, arguments)
 
-    assert result.exit_code == 2
+    assert result.exit_code == 2  # noqa: PLR2004
     assert "--list-formats cannot be combined with format selection options." in result.output
     command_runtime.get_client.assert_not_called()
 
@@ -394,7 +394,7 @@ def test_formatted_save_as_resolves_format(plugin, command_runtime, tmp_path, ar
 def test_save_as_rejects_invalid_format_options(plugin, command_runtime, tmp_path, arguments):
     result = command_runtime.runner.invoke(plugin.save_as_cmd, [str(tmp_path / "output.any"), *arguments])
 
-    assert result.exit_code == 2
+    assert result.exit_code == 2  # noqa: PLR2004
     assert "Error:" in result.output
     command_runtime.get_client.assert_not_called()
 

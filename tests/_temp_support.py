@@ -41,7 +41,7 @@ def remove_temp_tree(path: Path, attempts: int = 6, delay_seconds: float = 0.5) 
         try:
             shutil.rmtree(path)
             return True
-        except FileNotFoundError:
+        except FileNotFoundError:  # noqa: PERF203 - retry cleanup after a transient race
             return True
         except OSError:
             if attempt == attempts - 1:

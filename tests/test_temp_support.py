@@ -2,7 +2,7 @@ import shutil
 import uuid
 from pathlib import Path
 
-import tests._temp_support as _temp_support
+from tests import _temp_support
 
 
 def _make_workspace() -> Path:
@@ -107,7 +107,7 @@ def test_remove_temp_tree_retries_after_transient_error(monkeypatch):
         removed = _temp_support.remove_temp_tree(target, attempts=2, delay_seconds=0)
 
         assert removed is True
-        assert calls["count"] == 2
+        assert calls["count"] == 2  # noqa: PLR2004
         assert not target.exists()
     finally:
         real_rmtree(workspace, ignore_errors=True)

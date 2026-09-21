@@ -1,25 +1,110 @@
+from __future__ import annotations
+
 import warnings
-from typing import Any, Optional
+from typing import Any
 
 import click
-from msword_cli import Document, WordAPIError, _com_error_message, _normalize_output_path, _resolve_constant, get_client, handle_api_error
 from pywintypes import com_error
 
+from msword_cli import (
+    Document,
+    WordAPIError,
+    _com_error_message,
+    _normalize_output_path,
+    _resolve_constant,
+    get_client,
+    handle_api_error,
+)
 
 _COMPARE_OPTIONS = [
-    click.option("--char-level", "granularity", flag_value="wdGranularityCharLevel", help="Compare at character level (default: word level)."),
-    click.option("--no-formatting", "formatting", is_flag=True, default=False, help="Ignore formatting differences."),
-    click.option("--no-case-changes", "case_changes", is_flag=True, default=False, help="Ignore case change differences."),
-    click.option("--no-whitespace", "whitespace", is_flag=True, default=False, help="Ignore whitespace differences."),
-    click.option("--no-tables", "tables", is_flag=True, default=False, help="Ignore table differences."),
-    click.option("--no-headers", "headers", is_flag=True, default=False, help="Ignore header/footer differences."),
-    click.option("--no-footnotes", "footnotes", is_flag=True, default=False, help="Ignore footnote differences."),
-    click.option("--no-textboxes", "textboxes", is_flag=True, default=False, help="Ignore text box differences."),
-    click.option("--no-fields", "fields", is_flag=True, default=False, help="Ignore field differences."),
-    click.option("--no-comments", "comments", is_flag=True, default=False, help="Ignore comment differences."),
-    click.option("--no-moves", "moves", is_flag=True, default=False, help="Ignore move differences."),
-    click.option("--author", type=str, default=None, help="Author name for tracked changes (defaults to Word username)."),
-    click.option("--ignore-warnings", is_flag=True, default=False, help="Suppress all comparison warning dialogs."),
+    click.option(
+        "--char-level",
+        "granularity",
+        flag_value="wdGranularityCharLevel",
+        help="Compare at character level (default: word level).",
+    ),
+    click.option(
+        "--no-formatting",
+        "formatting",
+        is_flag=True,
+        default=False,
+        help="Ignore formatting differences.",
+    ),
+    click.option(
+        "--no-case-changes",
+        "case_changes",
+        is_flag=True,
+        default=False,
+        help="Ignore case change differences.",
+    ),
+    click.option(
+        "--no-whitespace",
+        "whitespace",
+        is_flag=True,
+        default=False,
+        help="Ignore whitespace differences.",
+    ),
+    click.option(
+        "--no-tables",
+        "tables",
+        is_flag=True,
+        default=False,
+        help="Ignore table differences.",
+    ),
+    click.option(
+        "--no-headers",
+        "headers",
+        is_flag=True,
+        default=False,
+        help="Ignore header/footer differences.",
+    ),
+    click.option(
+        "--no-footnotes",
+        "footnotes",
+        is_flag=True,
+        default=False,
+        help="Ignore footnote differences.",
+    ),
+    click.option(
+        "--no-textboxes",
+        "textboxes",
+        is_flag=True,
+        default=False,
+        help="Ignore text box differences.",
+    ),
+    click.option(
+        "--no-fields",
+        "fields",
+        is_flag=True,
+        default=False,
+        help="Ignore field differences.",
+    ),
+    click.option(
+        "--no-comments",
+        "comments",
+        is_flag=True,
+        default=False,
+        help="Ignore comment differences.",
+    ),
+    click.option(
+        "--no-moves",
+        "moves",
+        is_flag=True,
+        default=False,
+        help="Ignore move differences.",
+    ),
+    click.option(
+        "--author",
+        type=str,
+        default=None,
+        help="Author name for tracked changes (defaults to Word username).",
+    ),
+    click.option(
+        "--ignore-warnings",
+        is_flag=True,
+        default=False,
+        help="Suppress all comparison warning dialogs.",
+    ),
 ]
 
 
@@ -29,18 +114,20 @@ def add_compare_options(func):
     return func
 
 
-def _close_temporary_documents(*, original_doc: Any, revised_doc: Any, result_doc: Any) -> list:
+def _close_temporary_documents(
+    *, original_doc: Any, revised_doc: Any, result_doc: Any
+) -> list:
     errors = []
     for temp_doc in (original_doc, revised_doc):
         if temp_doc is not None and temp_doc is not result_doc:
             try:
                 temp_doc.Close(_resolve_constant("wdDoNotSaveChanges"))
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001
                 errors.append(error)
     return errors
 
 
-def _run_document_comparison(
+def _run_document_comparison(  # noqa: PLR0913
     *,
     client: Any,
     operation_name: str,
@@ -62,7 +149,7 @@ def _run_document_comparison(
     fields: bool = True,
     comments: bool = True,
     moves: bool = True,
-    author: Optional[str] = None,
+    author: str | None = None,
     ignore_warnings: bool = False,
 ) -> Document:
     original_doc = None
@@ -70,8 +157,12 @@ def _run_document_comparison(
     result_doc = None
     try:
         word = client.native
-        original_doc = word.Documents.Open(FileName=_normalize_output_path(original), Visible=False)
-        revised_doc = word.Documents.Open(FileName=_normalize_output_path(revised), Visible=False)
+        original_doc = word.Documents.Open(
+            FileName=_normalize_output_path(original), Visible=False
+        )
+        revised_doc = word.Documents.Open(
+            FileName=_normalize_output_path(revised), Visible=False
+        )
         resolved_destination = _resolve_constant(destination or new_destination)
         result = getattr(word, com_method_name)(
             OriginalDocument=original_doc,
@@ -97,7 +188,9 @@ def _run_document_comparison(
             result_doc = revised_doc
         return Document(result)
     except com_error as error:
-        raise WordAPIError(f"{operation_name} failed: {_com_error_message(error)}") from error
+        raise WordAPIError(
+            f"{operation_name} failed: {_com_error_message(error)}"
+        ) from error
     finally:
         cleanup_errors = _close_temporary_documents(
             original_doc=original_doc,
@@ -112,7 +205,7 @@ def _run_document_comparison(
             )
 
 
-def compare(
+def compare(  # noqa: PLR0913, PLR0917
     client: Any,
     original: str,
     revised: str,
@@ -128,7 +221,7 @@ def compare(
     fields: bool = True,
     comments: bool = True,
     moves: bool = True,
-    author: Optional[str] = None,
+    author: str | None = None,
     ignore_warnings: bool = False,
 ) -> Document:
     return _run_document_comparison(
@@ -157,7 +250,7 @@ def compare(
     )
 
 
-def merge(
+def merge(  # noqa: PLR0913, PLR0917
     client: Any,
     original: str,
     revised: str,
@@ -173,7 +266,7 @@ def merge(
     fields: bool = True,
     comments: bool = True,
     moves: bool = True,
-    author: Optional[str] = None,
+    author: str | None = None,
     ignore_warnings: bool = False,
 ) -> Document:
     return _run_document_comparison(
@@ -202,14 +295,48 @@ def merge(
     )
 
 
-@click.command("compare", short_help="Compare two documents.", help="Compare ORIGINAL and REVISED documents, showing differences as tracked changes.")
+@click.command(
+    "compare",
+    short_help="Compare two documents.",
+    help=(
+        "Compare ORIGINAL and REVISED documents, showing differences as "
+        "tracked changes."
+    ),
+)
 @click.argument("original", type=click.Path(exists=True, resolve_path=True))
 @click.argument("revised", type=click.Path(exists=True, resolve_path=True))
-@click.option("--to-original", "destination", flag_value="wdCompareDestinationOriginal", help="Put diff into the original document.")
-@click.option("--to-revised", "destination", flag_value="wdCompareDestinationRevised", help="Put diff into the revised document.")
+@click.option(
+    "--to-original",
+    "destination",
+    flag_value="wdCompareDestinationOriginal",
+    help="Put diff into the original document.",
+)
+@click.option(
+    "--to-revised",
+    "destination",
+    flag_value="wdCompareDestinationRevised",
+    help="Put diff into the revised document.",
+)
 @add_compare_options
 @handle_api_error
-def compare_cmd(original: str, revised: str, destination: Any, granularity: Any, formatting: bool, case_changes: bool, whitespace: bool, tables: bool, headers: bool, footnotes: bool, textboxes: bool, fields: bool, comments: bool, moves: bool, author: Optional[str], ignore_warnings: bool) -> None:
+def compare_cmd(  # noqa: PLR0913, PLR0917
+    original: str,
+    revised: str,
+    destination: Any,
+    granularity: Any,
+    formatting: bool,
+    case_changes: bool,
+    whitespace: bool,
+    tables: bool,
+    headers: bool,
+    footnotes: bool,
+    textboxes: bool,
+    fields: bool,
+    comments: bool,
+    moves: bool,
+    author: str | None,
+    ignore_warnings: bool,
+) -> None:
     click.echo(f'Comparing "{original}" with "{revised}"')
     result = compare(
         get_client(),
@@ -233,14 +360,45 @@ def compare_cmd(original: str, revised: str, destination: Any, granularity: Any,
     click.echo(f'Result document: "{result.name}"')
 
 
-@click.command("merge", short_help="Merge two documents.", help="Merge ORIGINAL and REVISED documents, combining their tracked changes.")
+@click.command(
+    "merge",
+    short_help="Merge two documents.",
+    help="Merge ORIGINAL and REVISED documents, combining their tracked changes.",
+)
 @click.argument("original", type=click.Path(exists=True, resolve_path=True))
 @click.argument("revised", type=click.Path(exists=True, resolve_path=True))
-@click.option("--to-original", "destination", flag_value="wdMergeDestinationOriginalDocument", help="Merge result into the original document.")
-@click.option("--to-revised", "destination", flag_value="wdMergeDestinationRevisedDocument", help="Merge result into the revised document.")
+@click.option(
+    "--to-original",
+    "destination",
+    flag_value="wdMergeDestinationOriginalDocument",
+    help="Merge result into the original document.",
+)
+@click.option(
+    "--to-revised",
+    "destination",
+    flag_value="wdMergeDestinationRevisedDocument",
+    help="Merge result into the revised document.",
+)
 @add_compare_options
 @handle_api_error
-def merge_cmd(original: str, revised: str, destination: Any, granularity: Any, formatting: bool, case_changes: bool, whitespace: bool, tables: bool, headers: bool, footnotes: bool, textboxes: bool, fields: bool, comments: bool, moves: bool, author: Optional[str], ignore_warnings: bool) -> None:
+def merge_cmd(  # noqa: PLR0913, PLR0917
+    original: str,
+    revised: str,
+    destination: Any,
+    granularity: Any,
+    formatting: bool,
+    case_changes: bool,
+    whitespace: bool,
+    tables: bool,
+    headers: bool,
+    footnotes: bool,
+    textboxes: bool,
+    fields: bool,
+    comments: bool,
+    moves: bool,
+    author: str | None,
+    ignore_warnings: bool,
+) -> None:
     click.echo(f'Merging "{original}" with "{revised}"')
     result = merge(
         get_client(),

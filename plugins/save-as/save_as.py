@@ -1,11 +1,13 @@
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import click
-from msword_cli import WordAPIError, get_client, handle_api_error
 from pywintypes import com_error
 from win32com.client import constants as C
 
+from msword_cli import WordAPIError, get_client, handle_api_error
 
 _SAVE_AS_FORMAT_ALIASES = [
     ("doc", "wdFormatDocument97"),
@@ -70,15 +72,22 @@ _COMPOSITIONAL_FORMATS = {
 }
 
 
-def _resolve_xml_format(document: bool, template: bool, flat: bool, macro: bool, strict: bool) -> str:
+def _resolve_xml_format(  # noqa: PLR0911, PLR0912 - explicit format precedence is clearer
+    document: bool, template: bool, flat: bool, macro: bool, strict: bool
+) -> str:
     if document and template:
         raise click.UsageError("--document and --template cannot be used together.")
     if flat and document:
         raise click.UsageError("--flat cannot be combined with --document.")
     if strict and (document or template or flat or macro):
-        raise click.UsageError("--strict cannot be combined with --document, --template, --flat, or --macro.")
+        raise click.UsageError(
+            "--strict cannot be combined with --document, --template, "
+            "--flat, or --macro."
+        )
     if macro and not (document or template or flat):
-        raise click.UsageError("--macro requires --document, --template, or --flat with --format xml.")
+        raise click.UsageError(
+            "--macro requires --document, --template, or --flat with --format xml."
+        )
     if strict:
         return "wdFormatStrictOpenXMLDocument"
     if flat and template and macro:
@@ -100,11 +109,17 @@ def _resolve_xml_format(document: bool, template: bool, flat: bool, macro: bool,
     return "wdFormatXML"
 
 
-def _resolve_text_format(line_breaks: bool, dos: bool, encoded: bool, unicode: bool) -> str:
+def _resolve_text_format(
+    line_breaks: bool, dos: bool, encoded: bool, unicode: bool
+) -> str:
     if encoded and (dos or line_breaks or unicode):
-        raise click.UsageError("--encoded cannot be combined with --dos, --line-breaks, or --unicode.")
+        raise click.UsageError(
+            "--encoded cannot be combined with --dos, --line-breaks, or --unicode."
+        )
     if unicode and (dos or line_breaks or encoded):
-        raise click.UsageError("--unicode cannot be combined with --dos, --line-breaks, or --encoded.")
+        raise click.UsageError(
+            "--unicode cannot be combined with --dos, --line-breaks, or --encoded."
+        )
     if dos and line_breaks:
         return "wdFormatDOSTextLineBreaks"
     if dos:
@@ -124,20 +139,22 @@ def _resolve_html_format(filtered: bool) -> str:
     return "wdFormatHTML"
 
 
-def _is_detected_format_constant(value: Optional[str]) -> bool:
+def _is_detected_format_constant(value: str | None) -> bool:
     compositional_constants = {
-        constant
-        for family in _COMPOSITIONAL_FORMATS.values()
-        for _, constant in family
+        constant for family in _COMPOSITIONAL_FORMATS.values() for _, constant in family
     }
-    excluded = (
-        compositional_constants
-        | {constant for _, constant in _SAVE_AS_FORMAT_ALIASES}
+    excluded = compositional_constants | {
+        constant for _, constant in _SAVE_AS_FORMAT_ALIASES
+    }
+    return (
+        isinstance(value, str)
+        and value.startswith("wdFormat")
+        and hasattr(C, value)
+        and value not in excluded
     )
-    return isinstance(value, str) and value.startswith("wdFormat") and hasattr(C, value) and value not in excluded
 
 
-def _iter_collection(collection: Any) -> List[Any]:
+def _iter_collection(collection: Any) -> list[Any]:
     if collection is None:
         return []
     try:
@@ -151,7 +168,7 @@ def _iter_collection(collection: Any) -> List[Any]:
     return [item(index) for index in range(1, int(count) + 1)]
 
 
-def _normalize_extensions(raw: Any) -> List[str]:
+def _normalize_extensions(raw: Any) -> list[str]:
     extensions = []
     for part in str(raw or "").replace(";", ",").split(","):
         cleaned = part.strip().lstrip("*.").lstrip(".")
@@ -160,7 +177,7 @@ def _normalize_extensions(raw: Any) -> List[str]:
     return extensions
 
 
-def _list_save_as_formats(client: Any) -> Dict[str, List[Dict[str, Any]]]:
+def _list_save_as_formats(client: Any) -> dict[str, list[dict[str, Any]]]:
     built_in = [
         {"alias": alias, "constant": constant}
         for alias, constant in _SAVE_AS_FORMAT_ALIASES
@@ -187,7 +204,9 @@ def _list_save_as_formats(client: Any) -> Dict[str, List[Dict[str, Any]]]:
         if _is_detected_format_constant(name)
     ]
     converters = []
-    for converter in _iter_collection(getattr(getattr(client, "native", None), "FileConverters", None)):
+    for converter in _iter_collection(
+        getattr(getattr(client, "native", None), "FileConverters", None)
+    ):
         if not getattr(converter, "CanSave", False):
             continue
         converters.append(
@@ -195,10 +214,18 @@ def _list_save_as_formats(client: Any) -> Dict[str, List[Dict[str, Any]]]:
                 "name": getattr(converter, "FormatName", None) or "Unknown",
                 "class_name": getattr(converter, "ClassName", None) or "Unknown",
                 "save_format": getattr(converter, "SaveFormat", None),
-                "extensions": _normalize_extensions(getattr(converter, "Extensions", None)),
+                "extensions": _normalize_extensions(
+                    getattr(converter, "Extensions", None)
+                ),
             }
         )
-    converters.sort(key=lambda item: (item["name"].lower(), item["class_name"].lower(), item["save_format"] or 0))
+    converters.sort(
+        key=lambda item: (
+            item["name"].lower(),
+            item["class_name"].lower(),
+            item["save_format"] or 0,
+        )
+    )
     return {
         "built_in": built_in,
         "html": html_formats,
@@ -209,44 +236,53 @@ def _list_save_as_formats(client: Any) -> Dict[str, List[Dict[str, Any]]]:
     }
 
 
-def _render_save_as_formats(formats: Dict[str, List[Dict[str, Any]]]) -> str:
+def _render_save_as_formats(formats: dict[str, list[dict[str, Any]]]) -> str:
     lines = ["Built-in formats:"]
-    for item in formats.get("built_in", []):
-        lines.append(f'  {item["alias"]} -> {item["constant"]}')
+    lines.extend(
+        f"  {item['alias']} -> {item['constant']}"
+        for item in formats.get("built_in", [])
+    )
     html_formats = formats.get("html", [])
     if html_formats:
         lines.extend(["", "HTML formats:"])
-        for item in html_formats:
-            lines.append(f'  {item["label"]} -> {item["constant"]}')
+        lines.extend(
+            f"  {item['label']} -> {item['constant']}" for item in html_formats
+        )
     xml_formats = formats.get("xml", [])
     if xml_formats:
         lines.extend(["", "XML formats:"])
-        for item in xml_formats:
-            lines.append(f'  {item["label"]} -> {item["constant"]}')
+        lines.extend(f"  {item['label']} -> {item['constant']}" for item in xml_formats)
     text_formats = formats.get("text", [])
     if text_formats:
         lines.extend(["", "Text formats:"])
-        for item in text_formats:
-            lines.append(f'  {item["label"]} -> {item["constant"]}')
+        lines.extend(
+            f"  {item['label']} -> {item['constant']}" for item in text_formats
+        )
     detected_constants = formats.get("detected_constants", [])
     if detected_constants:
         lines.extend(["", "Detected constants:"])
-        for item in detected_constants:
-            lines.append(f'  {item["alias"]} -> {item["constant"]}')
+        lines.extend(
+            f"  {item['alias']} -> {item['constant']}" for item in detected_constants
+        )
     converters = formats.get("converters", [])
     if converters:
         lines.extend(["", "Converter formats:"])
         for item in converters:
             suffix = ""
             if item["extensions"]:
-                suffix = " (" + ", ".join(f'*.{ext}' for ext in item["extensions"]) + ")"
-            lines.append(f'  {item["name"]} -> {item["save_format"]} [{item["class_name"]}]{suffix}')
+                suffix = (
+                    " (" + ", ".join(f"*.{ext}" for ext in item["extensions"]) + ")"
+                )
+            lines.append(
+                f"  {item['name']} -> {item['save_format']} "
+                f"[{item['class_name']}]{suffix}"
+            )
     return "\n".join(lines)
 
 
 def _com_error_message(error: Exception, fallback: str = "COM error") -> str:
     excepinfo = getattr(error, "excepinfo", None)
-    if excepinfo and len(excepinfo) > 2 and excepinfo[2]:
+    if excepinfo and len(excepinfo) > 2 and excepinfo[2]:  # noqa: PLR2004
         return str(excepinfo[2])
     return str(error) or fallback
 
@@ -260,7 +296,7 @@ def _save_as2(document: Any, path: Any, file_format: Any) -> str:
     return final_path
 
 
-def _resolve_save_as_constant(
+def _resolve_save_as_constant(  # noqa: PLR0913, PLR0917
     save_format: str,
     document: bool,
     template: bool,
@@ -287,9 +323,9 @@ def _resolve_save_as_constant(
     raise click.UsageError(f'Unknown or unsupported format "{save_format}".')
 
 
-def _prepare_save_as(
+def _prepare_save_as(  # noqa: PLR0913, PLR0917
     path: str,
-    save_format: Optional[str] = None,
+    save_format: str | None = None,
     document: bool = False,
     template: bool = False,
     flat: bool = False,
@@ -329,10 +365,10 @@ def _prepare_save_as(
     return final_path, constant_name
 
 
-def save_as(
+def save_as(  # noqa: PLR0913, PLR0917
     client: Any,
     path: str,
-    save_format: Optional[str] = None,
+    save_format: str | None = None,
     document: bool = False,
     template: bool = False,
     flat: bool = False,
@@ -367,10 +403,18 @@ def save_as(
 @click.command(
     "save-as",
     short_help="Save the active document to another path or format.",
-    help="Save the active document to another path or convert it to another supported Word format. Use --list-formats to inspect save formats available through the current Word installation.",
+    help=(
+        "Save the active document to another path or convert it to another "
+        "supported Word format. Use --list-formats to inspect save formats "
+        "available through the current Word installation."
+    ),
 )
 @click.argument("path", required=False, type=click.Path(resolve_path=True))
-@click.option("--list-formats", is_flag=True, help="List save formats available through Word on this system.")
+@click.option(
+    "--list-formats",
+    is_flag=True,
+    help="List save formats available through Word on this system.",
+)
 @click.option("save_format", "--format", metavar="FORMAT")
 @click.option("document", "--document", is_flag=True)
 @click.option("template", "--template", is_flag=True)
@@ -383,10 +427,10 @@ def save_as(
 @click.option("encoded", "--encoded", is_flag=True)
 @click.option("unicode", "--unicode", is_flag=True)
 @handle_api_error
-def save_as_cmd(
-    path: Optional[str],
+def save_as_cmd(  # noqa: PLR0913, PLR0917
+    path: str | None,
     list_formats: bool,
-    save_format: Optional[str],
+    save_format: str | None,
     document: bool,
     template: bool,
     flat: bool,
@@ -402,8 +446,22 @@ def save_as_cmd(
     if list_formats:
         if path is not None:
             raise click.UsageError("Path is not allowed with --list-formats.")
-        if save_format or document or template or flat or strict or macro or filtered or line_breaks or dos or encoded or unicode:
-            raise click.UsageError("--list-formats cannot be combined with format selection options.")
+        if (
+            save_format
+            or document
+            or template
+            or flat
+            or strict
+            or macro
+            or filtered
+            or line_breaks
+            or dos
+            or encoded
+            or unicode
+        ):
+            raise click.UsageError(
+                "--list-formats cannot be combined with format selection options."
+            )
         click.echo(_render_save_as_formats(_list_save_as_formats(get_client())))
         return
 
