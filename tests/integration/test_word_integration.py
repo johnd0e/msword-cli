@@ -41,6 +41,24 @@ def test_word_client_can_create_save_and_reopen_document(word_client, temp_works
     assert doc_path.exists()
 
 
+def test_hidden_open_activates_opened_document(word_client, temp_workspace):
+    hidden_path = temp_workspace / 'hidden-open.docx'
+    anchor_path = temp_workspace / 'anchor.docx'
+
+    hidden_source = word_client.new(visible=False)
+    hidden_source.save(path=str(hidden_path))
+    hidden_source.close(force=True)
+
+    anchor = word_client.new(visible=False)
+    anchor.save(path=str(anchor_path))
+    opened = word_client.open(str(hidden_path), visible=False)
+
+    assert word_client.active_document.path == opened.path
+
+    opened.close(force=True)
+    anchor.close(force=True)
+
+
 def test_word_client_can_export_pdf(word_client, temp_workspace):
     doc_path = temp_workspace / 'export-source.docx'
     pdf_path = temp_workspace / 'exported.pdf'

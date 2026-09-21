@@ -177,6 +177,16 @@ The active rule is:
 - `--plugin-dir PATH` is an explicit override and takes priority over installed
   plugins with the same command name
 
+Command registration is deterministic:
+
+- core commands are never replaced by plugin commands;
+- an installed plugin loses a command-name conflict with an earlier installed
+  plugin and emits a warning;
+- an explicitly requested local plugin may replace an installed command with
+  the same name;
+- when local plugins conflict, the last explicitly requested local plugin wins
+  and emits a warning.
+
 This keeps runtime behavior aligned with the active Python environment and
 avoids silently mixing installed metadata with unrelated source files, while
 still providing a deliberate local development override.

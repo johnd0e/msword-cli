@@ -20,6 +20,18 @@ Run the suite from the project root:
 ./scripts/run-pytest.ps1
 ```
 
+The required static check is:
+
+```bash
+uv run ruff check .
+```
+
+The project gate enables `E`, `F`, `I`, `B`, and `UP`. `E501`, `I001`, and
+`B009` are temporarily ignored because they are currently noisy in this
+codebase. Legacy annotation, broad COM exception-handling, timezone, and
+other style categories remain outside the gate while they are reviewed
+separately.
+
 ### Development in sandboxed environments
 
 In some restricted or sandboxed Windows environments, `uv` cannot use its default user cache.

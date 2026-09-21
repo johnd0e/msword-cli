@@ -8,6 +8,7 @@
 
 import json
 import sys
+import warnings
 from datetime import date, datetime
 from functools import wraps
 from importlib.metadata import entry_points
@@ -289,16 +290,38 @@ class WordClient:
             if visible:
                 self._word.Visible = True
         except com_error as error:
+            if self._word is not None:
+                try:
+                    self._word.Quit()
+                except Exception:
+                    pass
             raise WordAPIError(f"Failed to initialize Word: {_com_error_message(error)}") from error
-        except Exception:
-            raise WordAPIError("Unable to load 'Word.Application'.")
+        except Exception as error:
+            if self._word is not None:
+                try:
+                    self._word.Quit()
+                except Exception:
+                    pass
+            if isinstance(error, WordAPIError):
+                raise
+            raise WordAPIError("Unable to load 'Word.Application'.") from error
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self._quit_on_exit:
-            self.quit()
+            try:
+                self.quit()
+            except Exception as error:
+                if exc_type is None:
+                    raise
+                warnings.warn(
+                    f"Word cleanup failed while handling an exception: {error}",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+        return False
 
     def _require_word(self) -> Any:
         if self._word is None:
@@ -402,6 +425,7 @@ class WordClient:
             setattr(self, method_name, MethodType(func, self))
 
     def open(self, path: str, visible: bool = True, read_only: bool = False, repair: bool = False) -> Document:
+        doc = None
         try:
             word = self.native
             doc = word.Documents.Open(
@@ -410,23 +434,52 @@ class WordClient:
                 ReadOnly=read_only,
                 OpenAndRepair=repair,
             )
+            document = Document(doc)
+            document.activate()
             if visible and not word.Visible:
                 word.Visible = True
-            return Document(doc)
+            return document
+        except WordAPIError:
+            if doc is not None:
+                try:
+                    doc.Close(_resolve_constant("wdDoNotSaveChanges"))
+                except Exception:
+                    pass
+            raise
         except com_error as error:
+            if doc is not None:
+                try:
+                    doc.Close(_resolve_constant("wdDoNotSaveChanges"))
+                except Exception:
+                    pass
             raise WordAPIError(f"Failed to open document: {_com_error_message(error)}") from error
 
     def new(self, template: Optional[str] = None, visible: bool = True) -> Document:
+        doc = None
         try:
             word = self.native
             if template:
                 doc = word.Documents.Add(Template=_normalize_output_path(template), Visible=visible)
             else:
                 doc = word.Documents.Add(Visible=visible)
+            document = Document(doc)
+            document.activate()
             if visible and not word.Visible:
                 word.Visible = True
-            return Document(doc)
+            return document
+        except WordAPIError:
+            if doc is not None:
+                try:
+                    doc.Close(_resolve_constant("wdDoNotSaveChanges"))
+                except Exception:
+                    pass
+            raise
         except com_error as error:
+            if doc is not None:
+                try:
+                    doc.Close(_resolve_constant("wdDoNotSaveChanges"))
+                except Exception:
+                    pass
             raise WordAPIError(f"Failed to create new document: {_com_error_message(error)}") from error
 
     def set_track_changes(self, enabled: bool) -> bool:
@@ -607,13 +660,13 @@ class WordClient:
 
     def quit(self) -> None:
         word = self._word
-        self._word = None
         if word is None:
             return
         try:
             word.Quit()
-        except Exception:
-            pass
+        except Exception as error:
+            raise WordAPIError(f"Failed to quit Word: {_com_error_message(error)}") from error
+        self._word = None
 
 
 _CLI_CLIENT = None
@@ -634,7 +687,7 @@ def handle_api_error(func):
         try:
             return func(*args, **kwargs)
         except WordAPIError as error:
-            raise click.ClickException(str(error))
+            raise click.ClickException(str(error)) from error
 
     return wrapper
 
@@ -692,6 +745,20 @@ def _document_key(document: Any) -> Tuple[str, str]:
     return (_safe_getattr(document, "path", None) or "", _document_name(document))
 
 
+def _com_identity(document: Any) -> Optional[int]:
+    native = _safe_getattr(document, "native", document)
+    oleobj = _safe_getattr(native, "_oleobj_", None)
+    if oleobj is None:
+        return None
+    try:
+        return int(oleobj)
+    except Exception:
+        try:
+            return int(oleobj.GetIUnknown())
+        except Exception:
+            return None
+
+
 def _remember_hidden_document(state: Dict[str, Any], document: Any, existing_keys: Iterable[Tuple[str, str]]) -> None:
     key = _document_key(document)
     if key in set(existing_keys):
@@ -712,12 +779,26 @@ def _close_tracked_hidden_documents(state: Dict[str, Any]) -> None:
     if not tracked:
         return
     client = state.get("client")
+    errors = []
     for document in tracked:
         click.echo(f'Auto closing hidden document "{_document_name(document)}"')
-        document.close(force=True)
+        try:
+            document.close(force=True)
+        except Exception as error:
+            errors.append(f'failed to auto-close hidden document "{_document_name(document)}": {error}')
     state["auto_close_documents"] = []
-    if client is not None and client.document_count == 0:
-        client.quit()
+    try:
+        no_documents = client is not None and client.document_count == 0
+    except Exception as error:
+        errors.append(f"failed to inspect open documents during cleanup: {error}")
+        no_documents = False
+    if no_documents:
+        try:
+            client.quit()
+        except Exception as error:
+            errors.append(f"failed to quit Word during cleanup: {error}")
+    for error in errors:
+        click.echo(f"Warning: {error}", err=True)
 
 
 def _render_documents(client: WordClient) -> str:
@@ -725,9 +806,15 @@ def _render_documents(client: WordClient) -> str:
         return "\nNo open documents found."
     lines = ["", "Open Documents:", ""]
     pad_len = len(str(client.document_count))
-    active_name = client.active_document.name
+    active_identity = _com_identity(client.active_document)
+    active_index = None
+    if active_identity is not None:
+        for index, doc in enumerate(client.documents, start=1):
+            if _com_identity(doc) == active_identity:
+                active_index = index
+                break
     for index, doc in enumerate(client.documents, start=1):
-        active = "*" if doc.name == active_name else " "
+        active = "*" if index == active_index else " "
         saved = "*" if not doc.saved else ""
         lines.append(f" {active} [{index: ={pad_len}}] {doc.name}{saved}")
     return "\n".join(lines)
@@ -779,7 +866,7 @@ class SectionedHelpGroup(click.Group):
             try:
                 manifest = _validate_plugin_manifest(plugin.load())
                 for command in _manifest_commands(manifest, fallback_name=getattr(plugin, "name", None)):
-                    self.add_command(command)
+                    self._register_plugin_command(command, manifest["name"], installed=True)
             except Exception as error:
                 plugin_name = getattr(plugin, "name", "<unknown>")
                 click.echo(f"Warning: Failed to load plugin {plugin_name}: {error}", err=True)
@@ -789,10 +876,23 @@ class SectionedHelpGroup(click.Group):
             for plugin_dir in _iter_local_plugin_dirs(plugin_root):
                 try:
                     for name, target in _read_local_plugin_entry_points(plugin_dir).items():
-                        for command in _load_local_plugin_commands(plugin_dir, name, target):
-                            self.add_command(command)
+                        manifest = _load_local_plugin_manifest(plugin_dir, target)
+                        for command in _manifest_commands(manifest, fallback_name=name):
+                            self._register_plugin_command(command, manifest["name"], installed=False)
                 except Exception as error:
                     click.echo(f'Warning: Failed to load local plugin {plugin_dir}: {error}', err=True)
+
+    def _register_plugin_command(self, command: click.Command, plugin_name: str, installed: bool) -> None:
+        command_name = command.name
+        if command_name in self._core_commands:
+            click.echo(f'Warning: Plugin "{plugin_name}" command "{command_name}" conflicts with a core command; skipped.', err=True)
+            return
+        if command_name in self.commands:
+            if installed:
+                click.echo(f'Warning: Plugin "{plugin_name}" command "{command_name}" conflicts with an already registered plugin; skipped.', err=True)
+                return
+            click.echo(f'Warning: Local plugin "{plugin_name}" overrides command "{command_name}".', err=True)
+        self.add_command(command)
 
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         commands = []
@@ -945,13 +1045,43 @@ def _discover_plugin_manifests(plugin_dirs: Sequence[str] = ()) -> List[Dict[str
         plugin_eps = _installed_plugin_entry_points()
     except Exception as error:
         raise WordAPIError(f"Failed to discover plugins: {error}") from error
-    for plugin in plugin_eps:
-        manifest = _validate_plugin_manifest(plugin.load())
-        manifests_by_name[manifest["name"]] = manifest
+    try:
+        for plugin in plugin_eps:
+            try:
+                manifest = _validate_plugin_manifest(plugin.load())
+            except Exception as error:
+                warnings.warn(
+                    f'Failed to load plugin {getattr(plugin, "name", "<unknown>")}: {error}',
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                continue
+            manifests_by_name[manifest["name"]] = manifest
+    except WordAPIError:
+        raise
+    except Exception as error:
+        raise WordAPIError(f"Failed to discover plugins: {error}") from error
     for plugin_root in plugin_dirs:
         for plugin_dir in _iter_local_plugin_dirs(plugin_root):
-            for _, target in _read_local_plugin_entry_points(plugin_dir).items():
-                manifest = _load_local_plugin_manifest(plugin_dir, target)
+            try:
+                local_entries = _read_local_plugin_entry_points(plugin_dir)
+            except Exception as error:
+                warnings.warn(
+                    f'Failed to read local plugin {plugin_dir}: {error}',
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                continue
+            for _, target in local_entries.items():
+                try:
+                    manifest = _load_local_plugin_manifest(plugin_dir, target)
+                except Exception as error:
+                    warnings.warn(
+                        f'Failed to load local plugin {plugin_dir}: {error}',
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
+                    continue
                 manifests_by_name[manifest["name"]] = manifest
     return list(manifests_by_name.values())
 

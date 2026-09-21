@@ -1,3 +1,4 @@
+import warnings
 from typing import Any, Optional
 
 import click
@@ -28,13 +29,15 @@ def add_compare_options(func):
     return func
 
 
-def _close_temporary_documents(*, original_doc: Any, revised_doc: Any, result_doc: Any) -> None:
+def _close_temporary_documents(*, original_doc: Any, revised_doc: Any, result_doc: Any) -> list:
+    errors = []
     for temp_doc in (original_doc, revised_doc):
         if temp_doc is not None and temp_doc is not result_doc:
             try:
                 temp_doc.Close(_resolve_constant("wdDoNotSaveChanges"))
-            except Exception:
-                pass
+            except Exception as error:
+                errors.append(error)
+    return errors
 
 
 def _run_document_comparison(
@@ -96,11 +99,17 @@ def _run_document_comparison(
     except com_error as error:
         raise WordAPIError(f"{operation_name} failed: {_com_error_message(error)}") from error
     finally:
-        _close_temporary_documents(
+        cleanup_errors = _close_temporary_documents(
             original_doc=original_doc,
             revised_doc=revised_doc,
             result_doc=result_doc,
         )
+        for error in cleanup_errors:
+            warnings.warn(
+                f"Failed to close temporary comparison document: {error}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
 
 def compare(

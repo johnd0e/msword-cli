@@ -28,6 +28,15 @@ Practical consequence:
 - they need to be exposed as flat commands or as option-driven behavior on
   existing commands
 
+Document lifecycle invariant:
+
+- `WordClient.open()` and `WordClient.new()` activate the returned document,
+  including when `visible=False`; `--hide` controls visibility, not which
+  document subsequent chained commands target.
+- Hidden-document cleanup runs after the command chain, including after an
+  error. Cleanup failures are warnings and must not replace the original
+  command error.
+
 This is a framework constraint, not a stylistic preference. If a future design
 wants nested command namespaces under `msw`, that would require reworking the
 root CLI structure away from the current chained model.

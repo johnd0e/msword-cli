@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 from click.testing import CliRunner
@@ -53,6 +54,131 @@ def test_open_hide_auto_closes_new_document(msword_cli, monkeypatch):
     hidden_doc.close.assert_called_once_with(force=True)
     client.quit.assert_called_once_with()
     assert 'Auto closing hidden document "foo.docx"' in result.output
+
+
+def test_hidden_open_error_stops_chain_and_preserves_primary_error(msword_cli, monkeypatch):
+    runner = CliRunner()
+    hidden_doc = make_document("foo.docx")
+    client = FakeClient(document_count=0)
+    client.open.return_value = hidden_doc
+    client.update_fields.side_effect = msword_cli.WordAPIError("update boom")
+    monkeypatch.setattr(msword_cli, "get_client", lambda: client)
+
+    with runner.isolated_filesystem():
+        Path("foo.docx").touch()
+        result = invoke(runner, msword_cli, ["open", "--hide", "foo.docx", "update-fields", "close"])
+
+    assert result.exit_code != 0
+    assert "Error: update boom" in result.output
+    hidden_doc.close.assert_called_once_with(force=True)
+    assert "Closing document" not in result.output
+
+
+def test_hidden_open_cleanup_failure_does_not_mask_primary_error(msword_cli, monkeypatch):
+    runner = CliRunner()
+    hidden_doc = make_document("foo.docx")
+    hidden_doc.close.side_effect = msword_cli.WordAPIError("close boom")
+    client = FakeClient(document_count=0)
+    client.open.return_value = hidden_doc
+    client.update_fields.side_effect = msword_cli.WordAPIError("update boom")
+    monkeypatch.setattr(msword_cli, "get_client", lambda: client)
+
+    with runner.isolated_filesystem():
+        Path("foo.docx").touch()
+        result = invoke(runner, msword_cli, ["open", "--hide", "foo.docx", "update-fields"])
+
+    assert result.exit_code != 0
+    assert "Error: update boom" in result.output
+    assert "close boom" in result.output
+
+
+def test_hidden_cleanup_continues_after_one_close_failure(msword_cli, monkeypatch):
+    runner = CliRunner()
+    first = make_document("first.docx")
+    second = make_document("second.docx")
+    first.close.side_effect = msword_cli.WordAPIError("first close boom")
+    client = FakeClient(document_count=0)
+    client.open.side_effect = [first, second]
+    client.update_fields.side_effect = msword_cli.WordAPIError("update boom")
+    monkeypatch.setattr(msword_cli, "get_client", lambda: client)
+
+    with runner.isolated_filesystem():
+        Path("first.docx").touch()
+        Path("second.docx").touch()
+        result = invoke(
+            runner,
+            msword_cli,
+            ["open", "--hide", "first.docx", "open", "--hide", "second.docx", "update-fields"],
+        )
+
+    assert result.exit_code != 0
+    assert "Error: update boom" in result.output
+    first.close.assert_called_once_with(force=True)
+    second.close.assert_called_once_with(force=True)
+    assert "first close boom" in result.output
+
+
+def test_hidden_cleanup_preserves_primary_error_when_document_count_fails(msword_cli, monkeypatch):
+    runner = CliRunner()
+    hidden_doc = make_document("foo.docx")
+
+    class BrokenCountClient:
+        def __init__(self):
+            self.documents = []
+            self.open = Mock(return_value=hidden_doc)
+            self.update_fields = Mock(side_effect=msword_cli.WordAPIError("update boom"))
+            self.quit = Mock()
+
+        @property
+        def document_count(self):
+            raise msword_cli.WordAPIError("count boom")
+
+    client = BrokenCountClient()
+    monkeypatch.setattr(msword_cli, "get_client", lambda: client)
+
+    with runner.isolated_filesystem():
+        Path("foo.docx").touch()
+        result = invoke(runner, msword_cli, ["open", "--hide", "foo.docx", "update-fields"])
+
+    assert result.exit_code != 0
+    assert "Error: update boom" in result.output
+    assert "count boom" in result.output
+    client.quit.assert_not_called()
+
+
+def test_hidden_cleanup_preserves_primary_error_when_quit_fails(msword_cli, monkeypatch):
+    runner = CliRunner()
+    hidden_doc = make_document("foo.docx")
+    client = FakeClient(document_count=0)
+    client.open.return_value = hidden_doc
+    client.update_fields.side_effect = msword_cli.WordAPIError("update boom")
+    client.quit.side_effect = msword_cli.WordAPIError("quit boom")
+    monkeypatch.setattr(msword_cli, "get_client", lambda: client)
+
+    with runner.isolated_filesystem():
+        Path("foo.docx").touch()
+        result = invoke(runner, msword_cli, ["open", "--hide", "foo.docx", "update-fields"])
+
+    assert result.exit_code != 0
+    assert "Error: update boom" in result.output
+    assert "quit boom" in result.output
+
+
+def test_explicit_close_removes_hidden_document_from_cleanup(msword_cli, monkeypatch):
+    runner = CliRunner()
+    hidden_doc = make_document("foo.docx")
+    client = FakeClient(document_count=1)
+    client.open.return_value = hidden_doc
+    client.active_document = hidden_doc
+    monkeypatch.setattr(msword_cli, "get_client", lambda: client)
+
+    with runner.isolated_filesystem():
+        Path("foo.docx").touch()
+        result = invoke(runner, msword_cli, ["open", "--hide", "foo.docx", "close"])
+
+    assert result.exit_code == 0
+    hidden_doc.close.assert_called_once_with(force=False)
+    assert "Auto closing hidden document" not in result.output
 
 
 def test_open_hide_does_not_auto_close_preexisting_document(msword_cli, monkeypatch):
@@ -483,6 +609,37 @@ def test_save_copy_command(msword_cli, monkeypatch):
 
     assert result.exit_code == 0
     doc.save_copy.assert_called_once_with(expected_path)
+
+
+def test_render_documents_marks_only_identity_match_active(msword_cli):
+    first = SimpleNamespace(Name="same.docx", FullName="C:/one/same.docx", Saved=True, _oleobj_=1)
+    second = SimpleNamespace(Name="same.docx", FullName="C:/two/same.docx", Saved=True, _oleobj_=2)
+    active = SimpleNamespace(Name="same.docx", FullName="C:/two/same.docx", Saved=True, _oleobj_=2)
+    client = SimpleNamespace(
+        document_count=2,
+        active_document=msword_cli.Document(active),
+        documents=[msword_cli.Document(first), msword_cli.Document(second)],
+    )
+
+    rendered = msword_cli._render_documents(client)
+
+    assert rendered.count("*") == 1
+    assert " * [2] same.docx" in rendered
+
+
+def test_render_documents_does_not_mark_unknown_identity_active(msword_cli):
+    first = SimpleNamespace(Name="same.docx", FullName="C:/one/same.docx", Saved=True)
+    second = SimpleNamespace(Name="same.docx", FullName="C:/two/same.docx", Saved=True)
+    active = SimpleNamespace(Name="same.docx", FullName="C:/two/same.docx", Saved=True)
+    client = SimpleNamespace(
+        document_count=2,
+        active_document=msword_cli.Document(active),
+        documents=[msword_cli.Document(first), msword_cli.Document(second)],
+    )
+
+    rendered = msword_cli._render_documents(client)
+
+    assert " * [" not in rendered
 
 
 def test_list_documents_command(msword_cli, monkeypatch):

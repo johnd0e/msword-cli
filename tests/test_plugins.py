@@ -2,6 +2,7 @@ from importlib import import_module
 from pathlib import Path
 from types import SimpleNamespace
 import sys
+import warnings
 from typing import Optional
 from unittest.mock import Mock
 
@@ -190,7 +191,7 @@ def test_plugin_dir_loads_local_plugins_without_install(monkeypatch, tmp_path):
     result = click.testing.CliRunner().invoke(msword_cli.cli, ['--plugin-dir', str(tmp_path), 'hello-plugin'])
 
     assert result.exit_code == 0, result.output
-    assert result.output == 'local plugin\n'
+    assert result.output.endswith('local plugin\n')
 
 
 def test_plugin_dir_overrides_installed_plugin(monkeypatch, tmp_path):
@@ -206,7 +207,8 @@ def test_plugin_dir_overrides_installed_plugin(monkeypatch, tmp_path):
     result = click.testing.CliRunner().invoke(msword_cli.cli, ['--plugin-dir', str(tmp_path), 'save-as'])
 
     assert result.exit_code == 0, result.output
-    assert result.output == 'local plugin\n'
+    assert result.output.endswith('local plugin\n')
+    assert 'overrides command "save-as"' in result.output
 
 
 def test_plugin_dir_failure_does_not_block_later_local_plugins(monkeypatch, tmp_path):
@@ -328,14 +330,16 @@ def test_word_client_load_plugins_rejects_method_name_conflicts(monkeypatch):
         client.load_plugins(include="hello-plugin")
 
 
-def test_word_client_load_plugins_rejects_invalid_manifest(monkeypatch):
+def test_word_client_load_plugins_skips_invalid_manifest(monkeypatch):
     plugin = SimpleNamespace(load=Mock(return_value={"command": None, "client_methods": {}}))
     entry_points_result = SimpleNamespace(select=Mock(return_value=[plugin]))
     msword_cli = import_with_plugins(monkeypatch, entry_points_result)
     client = msword_cli.WordClient(visible=False)
 
-    with pytest.raises(msword_cli.WordAPIError, match='Plugin manifest is missing a valid "name"'):
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
         client.load_plugins()
+    assert any('Plugin manifest is missing a valid "name"' in str(item.message) for item in captured)
 
 
 def test_word_client_load_plugins_loads_local_manifest_plugins(monkeypatch, tmp_path):

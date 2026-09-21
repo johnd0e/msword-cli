@@ -128,12 +128,27 @@ def test_word_client_open_passes_readonly_and_repair(msword_cli, monkeypatch):
     result = client.open("report.docx", visible=False, read_only=True, repair=True)
 
     assert isinstance(result, msword_cli.Document)
+    com_doc.Activate.assert_called_once_with()
     app.Documents.Open.assert_called_once_with(
         FileName=str(Path("report.docx").resolve()),
         Visible=False,
         ReadOnly=True,
         OpenAndRepair=True,
     )
+
+
+def test_word_client_new_activates_hidden_document(msword_cli, monkeypatch):
+    com_doc = FakeComDocument("report.docx")
+    app = FakeWordApp([com_doc])
+    app.Documents.Add.return_value = com_doc
+    monkeypatch.setattr(msword_cli.com.gencache, "EnsureDispatch", Mock(return_value=app))
+
+    client = msword_cli.WordClient(visible=False)
+    result = client.new(visible=False)
+
+    assert isinstance(result, msword_cli.Document)
+    com_doc.Activate.assert_called_once_with()
+    app.Documents.Add.assert_called_once_with(Visible=False)
 
 
 def test_word_client_visible_false_does_not_hide_existing_word(msword_cli, monkeypatch):
@@ -156,6 +171,78 @@ def test_word_client_context_manager_quits_on_exit(msword_cli, monkeypatch):
 
     assert client.closed is True
     app.Quit.assert_called_once_with()
+
+
+def test_word_client_quit_keeps_client_after_failure_and_retries(msword_cli, monkeypatch):
+    app = FakeWordApp()
+    app.Quit.side_effect = [RuntimeError("busy"), None]
+    monkeypatch.setattr(msword_cli.com.gencache, "EnsureDispatch", Mock(return_value=app))
+    client = msword_cli.WordClient(visible=False)
+
+    with pytest.raises(msword_cli.WordAPIError, match="Failed to quit Word"):
+        client.quit()
+    assert client.closed is False
+
+    client.quit()
+    assert client.closed is True
+    assert app.Quit.call_count == 2
+
+
+def test_word_client_context_preserves_body_error_when_quit_fails(msword_cli, monkeypatch):
+    app = FakeWordApp()
+    app.Quit.side_effect = RuntimeError("quit boom")
+    monkeypatch.setattr(msword_cli.com.gencache, "EnsureDispatch", Mock(return_value=app))
+
+    with pytest.raises(ValueError, match="body boom"):
+        with msword_cli.WordClient(quit_on_exit=True):
+            raise ValueError("body boom")
+
+
+def test_word_client_closes_word_when_visible_setup_fails(msword_cli, monkeypatch):
+    class BrokenVisibleApp(FakeWordApp):
+        def __init__(self):
+            self.Quit = Mock()
+
+        @property
+        def Visible(self):
+            return False
+
+        @Visible.setter
+        def Visible(self, value):
+            raise RuntimeError("visibility boom")
+
+    app = BrokenVisibleApp()
+    monkeypatch.setattr(msword_cli.com.gencache, "EnsureDispatch", Mock(return_value=app))
+
+    with pytest.raises(msword_cli.WordAPIError, match="Unable to load"):
+        msword_cli.WordClient(visible=True)
+    app.Quit.assert_called_once_with()
+
+
+def test_word_client_open_rolls_back_when_activation_fails(msword_cli, monkeypatch):
+    com_doc = FakeComDocument("report.docx")
+    com_doc.Activate.side_effect = msword_cli.com_error("activate boom")
+    app = FakeWordApp([com_doc])
+    app.Documents.Open.return_value = com_doc
+    monkeypatch.setattr(msword_cli.com.gencache, "EnsureDispatch", Mock(return_value=app))
+    client = msword_cli.WordClient(visible=False)
+
+    with pytest.raises(msword_cli.WordAPIError, match="Activation failed"):
+        client.open("report.docx", visible=False)
+    com_doc.Close.assert_called_once_with(msword_cli.C.wdDoNotSaveChanges)
+
+
+def test_word_client_new_rolls_back_when_activation_fails(msword_cli, monkeypatch):
+    com_doc = FakeComDocument("report.docx")
+    com_doc.Activate.side_effect = msword_cli.com_error("activate boom")
+    app = FakeWordApp([com_doc])
+    app.Documents.Add.return_value = com_doc
+    monkeypatch.setattr(msword_cli.com.gencache, "EnsureDispatch", Mock(return_value=app))
+    client = msword_cli.WordClient(visible=False)
+
+    with pytest.raises(msword_cli.WordAPIError, match="Activation failed"):
+        client.new(visible=False)
+    com_doc.Close.assert_called_once_with(msword_cli.C.wdDoNotSaveChanges)
 
 
 def test_word_client_native_exposes_word_application(msword_cli, monkeypatch):
